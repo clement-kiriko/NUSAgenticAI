@@ -1,88 +1,56 @@
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, START, END
-
-from state import State
 from agents import coordinator
-from nodes import (
-    human_node,
-    check_exit_condition,
-    coordinator_routing,
-    participant_node,
-    summarizer_node
-)
+from agents import destination
+from agents import budget
+from agents import scheduler
+from agents import summarizer
+from tools import trip_data_tool
+from nodes import human_node, coordinator_router
 
+from state import TripState
 
-load_dotenv(override=True)  # Override, so it would use your local .env file
-
-
-
+load_dotenv(override=True)
 
 def build_graph():
-    """
-    Build the LangGraph workflow.
-    """
-
-    builder = StateGraph(State)
+    builder = StateGraph(TripState)
 
     builder.add_node("human", human_node)
-    builder.add_node("coordinator", coordinator)  # Use coordinator directly
-    builder.add_node("participant", participant_node)
-    builder.add_node("summarizer", summarizer_node)
+    builder.add_node("coordinator", coordinator)
+    builder.add_node("router", coordinator_router)
+    builder.add_node("summarizer", summarizer)
 
-    # Edges
     builder.add_edge(START, "human")
 
-    builder.add_conditional_edges(
-        "human",
-        check_exit_condition,
-        {
-            "summarizer": "summarizer",
-            "coordinator": "coordinator"
-        }
-    )
-
-    builder.add_conditional_edges(
-        "coordinator",
-        coordinator_routing,
-        {
-            "participant": "participant",
-            "human": "human"
-        }
-    )
-
-    builder.add_edge("participant", "coordinator")
-
+    builder.add_edge("human", "coordinator")
+    builder.add_edge("coordinator", "router")
+    builder.add_edge("router", "coordinator")
     builder.add_edge("summarizer", END)
 
     return builder.compile()
 
 
-def main():
-    print("=== SINGAPORE KOPITIAM CHATTER ===")
-    print("Chat with our kopitiam regulars! Type 'exit' to end.\n")
-    print("Setting: A bustling Singapore kopitiam on a typical afternoon...")
-    print("The regulars are here - Uncle Ah Seng at his drinks stall,")
-    print("Mei Qi with her phone, Bala checking football scores,")
-    print("and Dr. Tan sipping his kopi-o.\n")
-
+def main(max_rounds=5):
     graph = build_graph()
 
     print(graph.get_graph().draw_ascii())
+    
+    state = {}
+    state = graph.invoke(state, start_at="human")
 
-    initial_state = State(
-        messages=[],
-        volley_msg_left=0,
-        next_speaker=None
-    )
+    
 
-    try:
-        graph.invoke(initial_state)
-    except KeyboardInterrupt:
-        print("\n\nConversation interrupted. Goodbye!")
-    except Exception as e:
-        print(f"\nAn error occurred: {e}")
-        print("Ending conversation...")
+    for i in range(max_rounds):
+        print(f"\n=== ROUND {i+1} ===")
+        state = graph.invoke(state, start_at="coordinator")
 
+        if state.get("next") == "summarizer" or "output" in state:
+            if "output" not in state:
+                state = graph.invoke(state, start_at="summarizer")
+            break
+
+    print("\n✅ Conversation completed.")
 
 if __name__ == "__main__":
     main()
+

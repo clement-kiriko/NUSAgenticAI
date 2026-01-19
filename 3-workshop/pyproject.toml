@@ -3,7 +3,7 @@ name = "sgkopitiam"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "beautifulsoup4>=4.13.4",
     "grandalf>=0.8",
@@ -11,7 +11,10 @@ dependencies = [
     "langchain>=0.3.27",
     "langchain-openai>=0.2.14",
     "langgraph>=0.6.6",
-    "lxml>=6.0.1",
+    "lxml>=6.0.2",
     "python-dotenv>=1.1.1",
     "pytz>=2025.2",
 ]
+
+[tool.poetry]
+package-mode = false

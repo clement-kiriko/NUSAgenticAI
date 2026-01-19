@@ -1,99 +1,43 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from utils import debug
+
 
 
 def coordinator(state):
-    """
-    Select next speaker based on conversation context.
-    Manages volley control and updates state accordingly.
+    print(f"🧭 Coordinator Running")
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+    convo_text = "\n".join(f"{r}: {m}" for r, m in state.get("conversation", []))
 
-    Updates state with:
-    - next_speaker: Selected agent ID or "human"
-    - volley_msg_left: Decremented counter
+    system_prompt = (
+        "You are the trip coordinator. Review the conversation and decide the next step.\n"
+        "Rules:\n"
+        "- If the last agent's response is unclear, choose a repeat_* option.\n"
+        "- If destination info missing -> destination\n"
+        "- If destination done but budget missing -> budget\n"
+        "- If destination+budget done but schedule missing -> scheduler\n"
+        "- If all done -> summarize\n"
+        "Return ONLY one token:\n"
+        "destination | repeat_destination | budget | repeat_budget | "
+        "scheduler | repeat_scheduler | summarize"
+    )
 
-    Returns: Updated state
-    """
+    resp = llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"Conversation so far:\n{convo_text}")
+    ])
+    decision = (resp.content or "").strip().lower()
 
-    debug(state)
-    volley_left = state.get("volley_msg_left", 0)
-    debug(f"Volley messages left: {volley_left}", "COORDINATOR")
+    if "trip_options" not in state:
+        decision = "trip_tool"
+    elif not state.get("destination_done"):
+        decision = "destination" if "repeat" not in decision else "repeat_destination"
+    elif not state.get("budget_done"):
+        decision = "budget" if "repeat" not in decision else "repeat_budget"
+    elif not state.get("schedule_done"):
+        decision = "scheduler" if "repeat" not in decision else "repeat_scheduler"
+    else:
+        decision = "summarizer"
 
-    if volley_left <= 0:
-        debug("No volleys left, returning to human", "COORDINATOR")
-        return {
-            "next_speaker": "human",
-            "volley_msg_left": 0
-        }
-
-    messages = state.get("messages", [])
-
-    conversation_text = ""
-    for msg in messages:
-        # Messages are now always dicts
-        conversation_text += f"{msg.get('content', '')}\n"
-
-    system_prompt = """You are managing a lively conversation at a Singapore kopitiam.
-
-    Available speakers:
-    - ah_seng: Uncle Ah Seng, 68yo kopi uncle, speaks Singlish, knows about drinks and weather
-    - mei_qi: Young 21yo content creator, social media savvy, knows latest news and trends
-    - bala: Ex-statistician turned football tipster, dry humor, analytical
-    - dr_tan: Retired 72yo philosophy professor, thoughtful and deep thinker
-
-    Based on the conversation flow, select who should speak next to keep the conversation lively and natural.
-    Consider:
-    - Who hasn't spoken recently
-    - Who has relevant expertise for the current topic
-    - Most importantly, who would add interesting perspective
-    - Natural kopitiam banter flow
-    - mei_qi should speak more about social media and trends, and she gets a lot of news, so she's naturally excited.
-
-    Respond with ONLY the speaker ID (ah_seng, mei_qi, bala, or dr_tan).
-    """
-
-    user_prompt = f"""Recent conversation:
-{conversation_text}
-
-Who should speak next to keep this kopitiam conversation lively?"""
-
-    debug("Analyzing conversation context...", "COORDINATOR")
-
-    # Call LLM
-    try:
-        llm = ChatOpenAI(model="gpt-5-nano", temperature=1)
-
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ])
-
-        # Extract speaker from response
-        if isinstance(response.content, list):
-            selected_speaker = " ".join(str(item) for item in response.content).strip().lower()
-        else:
-            selected_speaker = str(response.content).strip().lower()
-        debug(f"LLM selected: {selected_speaker}", "COORDINATOR")
-
-        # Validate speaker
-        valid_speakers = ["ah_seng", "mei_qi", "bala", "dr_tan"]
-        if selected_speaker not in valid_speakers:
-            # Fallback to round-robin if invalid
-            import random
-            selected_speaker = random.choice(valid_speakers)
-            debug(f"Invalid speaker, fallback to: {selected_speaker}", "COORDINATOR")
-
-    except Exception as e:
-        # Fallback selection if LLM fails
-        import random
-        valid_speakers = ["ah_seng", "mei_qi", "bala", "dr_tan"]
-        selected_speaker = random.choice(valid_speakers)
-        debug(f"LLM error, random selection: {selected_speaker}", "COORDINATOR")
-
-    debug(f"Final selection: {selected_speaker} (volley {volley_left} -> {volley_left - 1})", "COORDINATOR")
-
-    # Return only the updates (LangGraph will merge with existing state)
-    return {
-        "next_speaker": selected_speaker,
-        "volley_msg_left": volley_left - 1
-    }
+    print(f"🧭 Coordinator decided: {decision}")
+    state["next"] = decision
+    return state
