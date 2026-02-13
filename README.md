@@ -1,14 +1,42 @@
 Overview of the Solution
-The Trip Planner Council is a multi-agent simulation designed to collaboratively build a personalized, day-by-day travel itinerary based on user preferences. The system features three specialized agents—a Destination Expert, a Budget Analyst, and a Scheduler Agent—each with distinct roles and capabilities.
-•	The Destination Expert recommends attractions and activities based on the destination.
-•	The Budget Analyst evaluates cost feasibility to ensure the trip stays within budget.
-•	The Scheduler Agent organizes the chosen attractions into a coherent daily schedule with appropriate timings.
-Agents communicate through a peer-to-peer coordination mechanism using shared memory to exchange preferences and negotiation results. A tool integration layer provides access to mock APIs or datasets (e.g., map or price lookup), with controlled permissions per agent to simulate real-world role-based tool access.
-The system maintains both shared and individual agent states to track decisions, preferences, and updates across the planning process. Given a user prompt such as “3-day Japan trip under $1000”, the agents collaboratively generate a complete, budget-conscious itinerary while demonstrating effective state management, inter-agent communication, and coordinated decision-making.
-Clear set up instructions so that your instructor (me) knows how to set it up and run it.
+Overview of the Solution
+
+The Trip Planner Council is a multi-agent travel planning system that collaborates to generate a complete trip plan based on user inputs (travel days, budget in SGD, country, start date, and dietary restrictions).
+
+The system currently includes six coordinated agents:
+- Flight Agent: proposes flight options and weather-aware travel strategy.
+- Locations Agent: recommends attractions and neighborhood strategy.
+- Food Agent: suggests meal planning based on budget and dietary restrictions.
+- Accomodations Agent: recommends stay options with location/proximity considerations.
+- Budget Agent: consolidates costs and checks if the plan fits user budget.
+- Orchestrator/Consolidation Agent: coordinates round-robin execution and produces a final consolidated report.
+
+Agents communicate through shared state and conversation history, and each specialist can use approved tools only (tool access control).  
+Tool integration includes Geoapify-backed retrieval (search, routing/proximity, place signals) with safe fallback behavior if external calls are unavailable.
+
+The planner supports iterative refinement:
+- If the plan is over budget, the system auto-optimizes by swapping to cheaper alternatives.
+- Optimization is capped at 3 rounds.
+- User feedback is collected until satisfaction or max rounds reached.
+
+This demonstrates:
+- multi-agent architecture and specialization
+- orchestration and message passing
+- tool integration and permission controls
+- state management across planning rounds
+
 Set up instructions
-1)	Download and unzip the code
-2)	Open cmd prompt > Run “pip install poetry”
-3)	Run “poetry install”
-4)	Start the conversation > “python main.py”
-5)	1st prompt(human): 3-day Japan trip under $1000
+
+1. Download and unzip the code or git clone the project.
+2. Open terminal and go to the project folder.
+3. Go into `TripBuddy`:
+   - `cd TripBuddy`
+4. Install dependencies:
+   - `poetry install`
+5. Create `.env` from `.env.example` and set:
+   - `OPENAI_API_KEY`
+   - `OPENAI_MODEL` (default: `gpt-5`)
+   - `GEOAPIFY_API_KEY`
+   - `DEBUG` (`true`/`false`)
+6. Run:
+   - `poetry run python main.py`
