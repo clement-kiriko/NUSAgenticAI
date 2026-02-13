@@ -1,56 +1,62 @@
 from dotenv import load_dotenv
-from langgraph.graph import StateGraph, START, END
-from agents import coordinator
-from agents import destination
-from agents import budget
-from agents import scheduler
-from agents import summarizer
-from tools import trip_data_tool
-from nodes import human_node, coordinator_router
+from langgraph.graph import END, START, StateGraph
 
+from agents import (
+    accomodations_agent,
+    budget_agent,
+    consolidation_agent,
+    flight_agent,
+    food_agent,
+    locations_agent,
+    orchestrator_agent,
+)
+from nodes import feedback_node, feedback_router, intake_node
 from state import TripState
 
 load_dotenv(override=True)
 
+
 def build_graph():
-    builder = StateGraph(TripState)
+    graph = StateGraph(TripState)
+    graph.add_node("intake", intake_node)
+    graph.add_node("orchestrator", orchestrator_agent)
+    graph.add_node("flight", flight_agent)
+    graph.add_node("locations", locations_agent)
+    graph.add_node("food", food_agent)
+    graph.add_node("accomodations", accomodations_agent)
+    graph.add_node("budget", budget_agent)
+    graph.add_node("consolidation", consolidation_agent)
+    graph.add_node("feedback", feedback_node)
 
-    builder.add_node("human", human_node)
-    builder.add_node("coordinator", coordinator)
-    builder.add_node("router", coordinator_router)
-    builder.add_node("summarizer", summarizer)
+    graph.add_edge(START, "intake")
+    graph.add_edge("intake", "orchestrator")
+    graph.add_edge("orchestrator", "flight")
+    graph.add_edge("flight", "locations")
+    graph.add_edge("locations", "food")
+    graph.add_edge("food", "accomodations")
+    graph.add_edge("accomodations", "budget")
+    graph.add_edge("budget", "consolidation")
+    graph.add_edge("consolidation", "feedback")
+    graph.add_conditional_edges(
+        "feedback",
+        feedback_router,
+        {
+            "end": END,
+            "rerun": "orchestrator",
+        },
+    )
+    return graph.compile()
 
-    builder.add_edge(START, "human")
 
-    builder.add_edge("human", "coordinator")
-    builder.add_edge("coordinator", "router")
-    builder.add_edge("router", "coordinator")
-    builder.add_edge("summarizer", END)
+def main():
+    app = build_graph()
+    print(app.get_graph().draw_ascii())
+    print("Set DEBUG=true for verbose LLM/tool trace logs.")
+    result = app.invoke({})
 
-    return builder.compile()
+    print("\nFinal Approved Report")
+    print(result.get("final_report", result.get("report")))
 
-
-def main(max_rounds=5):
-    graph = build_graph()
-
-    print(graph.get_graph().draw_ascii())
-    
-    state = {}
-    state = graph.invoke(state, start_at="human")
-
-    
-
-    for i in range(max_rounds):
-        print(f"\n=== ROUND {i+1} ===")
-        state = graph.invoke(state, start_at="coordinator")
-
-        if state.get("next") == "summarizer" or "output" in state:
-            if "output" not in state:
-                state = graph.invoke(state, start_at="summarizer")
-            break
-
-    print("\n✅ Conversation completed.")
 
 if __name__ == "__main__":
     main()
-

@@ -1,13 +1,20 @@
-from typing import TypedDict, Optional, List, Any
+from typing import Any, Dict, List, Optional, TypedDict
 
-# Define the structure of our shared state for LangGraph ≥0.2
+
 class TripState(TypedDict, total=False):
-    user_input: str
+    user_requirements: Dict[str, Any]
+    feedback: str
+    report: Dict[str, Any]
+    final_report: Optional[Dict[str, Any]]
+    satisfied: bool
+    auto_rerun: bool
+    max_rounds: int
+    optimization_hints: Dict[str, Any]
     conversation: List[Any]
-    trip_options: List[Any]
-    next: str
-    destination_done: bool
-    budget_done: bool
-    schedule_done: bool
-    final_summary: Optional[dict]
-
+    round_number: int
+    tool_calls: List[Dict[str, Any]]
+    flight_plan: Dict[str, Any]
+    locations_plan: Dict[str, Any]
+    food_plan: Dict[str, Any]
+    accomodations_plan: Dict[str, Any]
+    budget_plan: Dict[str, Any]
