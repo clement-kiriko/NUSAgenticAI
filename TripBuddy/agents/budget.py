@@ -13,13 +13,18 @@ def _get_cost(plan: dict) -> float:
 def budget_agent(state: dict) -> dict:
     log_agent("budget_agent", "Reconciling all agent estimates against user budget")
     req = state["user_requirements"]
-    total_budget = float(req["budget_sgd"])
-
+    total_budget = float(req.get("budget_sgd", 0))
     flight_cost = _get_cost(state.get("flight_plan", {}))
     food_cost = _get_cost(state.get("food_plan", {}))
     location_cost = _get_cost(state.get("locations_plan", {}))
     accom_cost = _get_cost(state.get("accomodations_plan", {}))
     projected_total = flight_cost + food_cost + location_cost + accom_cost
+
+    if total_budget == 0:
+        log_agent("budget_agent", "utilising average cost of trip for number of days stated")
+        days = req,get("days")
+        average_per_day = 300 
+        total_budget = days * average_per_day
 
     plan = invoke_json(
         role_prompt("Budget Agent"),

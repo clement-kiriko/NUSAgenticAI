@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
+from prometheus_client import start_http_server
 
 from agents import (
     accomodations_agent,
@@ -49,11 +50,11 @@ def build_graph():
 
 
 def main():
+    # start_http_server(8000)  # http://localhost:8000/metrics (to be used after app can connect to docker)
     app = build_graph()
     print(app.get_graph().draw_ascii())
     print("Set DEBUG=true for verbose LLM/tool trace logs.")
     result = app.invoke({})
-
     print("\nFinal Approved Report")
     print(result.get("final_report", result.get("report")))
 

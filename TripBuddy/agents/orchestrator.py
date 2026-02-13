@@ -17,6 +17,11 @@ from tools import (
     web_search_api,
 )
 from utils import debug
+from prometheus_client import Counter, Histogram
+
+LLM_CALLS = Counter("llm_calls_total", "Total LLM calls")
+LLM_TOKENS = Counter("llm_tokens_total", "Total tokens used")
+LLM_LATENCY = Histogram("llm_latency_seconds", "LLM latency")
 
 TOOL_REGISTRY = {
     "FlightAPI": flight_api,
@@ -42,6 +47,22 @@ def advisor_llm() -> ChatOpenAI:
     model = os.getenv("OPENAI_MODEL", "gpt-5")
     return ChatOpenAI(model=model, temperature=1)
 
+def call_llm(llm, messages):
+    import time
+    from langchain.callbacks import get_openai_callback
+    start = time.time()
+
+    with get_openai_callback() as cb:
+        response = llm.invoke(messages)
+
+        duration = time.time() - start
+
+        # ✅ metrics
+        LLM_CALLS.inc()
+        LLM_TOKENS.inc(cb.total_tokens)
+        LLM_LATENCY.observe(duration)
+
+        return response
 
 def invoke_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
     try:
