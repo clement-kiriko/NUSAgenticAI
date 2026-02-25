@@ -16,12 +16,16 @@ from tools import (
     weather_api,
     web_search_api,
 )
+from metrics import (
+    AGENT_TOOL_CALLS,
+    AGENT_LATENCY,
+    token_counter_total,
+    token_counter_prompt,
+    token_counter_completion,
+)
 from utils import debug
 from prometheus_client import Counter, Histogram
 
-LLM_CALLS = Counter("llm_calls_total", "Total LLM calls")
-LLM_TOKENS = Counter("llm_tokens_total", "Total tokens used")
-LLM_LATENCY = Histogram("llm_latency_seconds", "LLM latency")
 
 TOOL_REGISTRY = {
     "FlightAPI": flight_api,
@@ -57,10 +61,11 @@ def call_llm(llm, messages):
 
         duration = time.time() - start
 
-        # ✅ metrics
-        LLM_CALLS.inc()
-        LLM_TOKENS.inc(cb.total_tokens)
-        LLM_LATENCY.observe(duration)
+        usage = response.get("usage", {})
+        
+        token_counter_prompt.labels(model=os.getenv("OPENAI_MODEL", "gpt-5")).inc(usage["prompt_tokens"])
+        token_counter_completion.labels(model=os.getenv("OPENAI_MODEL", "gpt-5")).inc(usage["completion_tokens"])
+        token_counter_total.labels(model=os.getenv("OPENAI_MODEL", "gpt-5")).inc(usage["total_tokens"])
 
         return response
 
@@ -82,6 +87,7 @@ def invoke_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
 
 def call_tool(state: dict, agent_name: str, tool_name: str, *args, **kwargs):
     allowed = TOOL_PERMISSIONS.get(agent_name, set())
+    AGENT_TOOL_CALLS.labels(tool_name=tool_name).inc()
     if tool_name not in allowed:
         raise PermissionError(f"{agent_name} is not allowed to call {tool_name}")
     result = TOOL_REGISTRY[tool_name](*args, **kwargs)
