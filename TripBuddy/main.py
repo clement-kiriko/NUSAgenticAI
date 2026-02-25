@@ -1,6 +1,10 @@
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
-from prometheus_client import start_http_server
+from fastapi import FastAPI, Response
+from prometheus_client import Counter, generate_latest, Histogram
+import time
+
+app = FastAPI()
 
 from agents import (
     accomodations_agent,
@@ -15,6 +19,24 @@ from nodes import feedback_node, feedback_router, intake_node
 from state import TripState
 
 load_dotenv(override=True)
+
+
+
+AGENT_TOOL_CALLS = Counter("agent_tool_calls_total", "Total tool calls by agent", ["tool_name"])
+AGENT_LATENCY = Histogram("agent_execution_seconds", "Time taken for agent to respond")
+token_counter_total = Counter("llm_tokens_total", "Total tokens used", ["model"])
+token_counter_prompt = Counter("llm_tokens_prompt", "Prompt tokens used", ["model"])
+token_counter_completion = Counter("llm_tokens_completion", "Completion tokens used", ["model"])
+
+#to be added to the API calls that calls the tokens
+
+    # usage = response['usage']
+    # start_time = time.time()
+    # token_counter_prompt.labels(model=request.model).inc(usage["prompt_tokens"])
+    # token_counter_completion.labels(model=request.model).inc(usage["completion_tokens"])
+    # token_counter_total.labels(model=request.model).inc(usage["total_tokens"])
+    # AGENT_TOOL_CALLS.labels(tool_name="web_search").inc()
+    # AGENT_LATENCY.observe(time.time() - start_time)
 
 
 def build_graph():
@@ -50,7 +72,6 @@ def build_graph():
 
 
 def main():
-    # start_http_server(8000)  # http://localhost:8000/metrics (to be used after app can connect to docker)
     app = build_graph()
     print(app.get_graph().draw_ascii())
     print("Set DEBUG=true for verbose LLM/tool trace logs.")
@@ -58,6 +79,10 @@ def main():
     print("\nFinal Approved Report")
     print(result.get("final_report", result.get("report")))
 
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type="text/plain")
 
 if __name__ == "__main__":
     main()
