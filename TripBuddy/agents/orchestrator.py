@@ -31,7 +31,7 @@ TOOL_REGISTRY = {
 
 TOOL_PERMISSIONS = {
     "flight_agent": {"FlightAPI", "WeatherAPI"},
-    "locations_agent": {"TouristAttractionAPI", "WebSearchAPI", "MapsAPI", "ReviewsAPI"},
+    "locations_agent": {"TouristAttractionAPI", "WeatherAPI", "WebSearchAPI", "MapsAPI", "ReviewsAPI"},
     "food_agent": {"FoodAPI", "WebSearchAPI", "ReviewsAPI"},
     "accomodations_agent": {"AccomsAPI", "WebSearchAPI", "MapsAPI", "ReviewsAPI"},
     "budget_agent": set(),
