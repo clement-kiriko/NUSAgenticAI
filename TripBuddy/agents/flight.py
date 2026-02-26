@@ -18,11 +18,11 @@ def flight_agent(state: dict) -> dict:
     user = (
         "Use FlightAPI and WeatherAPI results to recommend a flight strategy.\n"
         "Return JSON with keys: selected_option, rationale, weather_notes, estimated_total_sgd.\n"
+        f"FlightAPI: {json.dumps(options)}\n"
         f"Requirements: {json.dumps(req)}\n"
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
-        f"Prior team messages: {recent_conversation(state)}\n"
-        f"FlightAPI: {json.dumps(options)}\n"
+        f"Prior team messages: {recent_conversation(state)}\n"        
         f"WeatherAPI: {json.dumps(weather)}"
     )
     plan = invoke_json(system, user)

@@ -4,30 +4,30 @@ from typing import Dict, List
 import httpx
 
 
-def flight_api(origin: str, destination: str, days: int) -> List[Dict]:
-    base = 420 + (days * 18)
-    return [
-        {
-            "airline": "SkyWays",
-            "route": f"{origin} -> {destination}",
-            "price_sgd": base,
-            "stops": 0,
-        },
-        {
-            "airline": "AeroConnect",
-            "route": f"{origin} -> {destination}",
-            "price_sgd": base - 70,
-            "stops": 1,
-        },
-    ]
+# def flight_api(origin: str, destination: str, days: int) -> List[Dict]:
+#     base = 420 + (days * 18)
+#     return [
+#         {
+#             "airline": "SkyWays",
+#             "route": f"{origin} -> {destination}",
+#             "price_sgd": base,
+#             "stops": 0,
+#         },
+#         {
+#             "airline": "AeroConnect",
+#             "route": f"{origin} -> {destination}",
+#             "price_sgd": base - 70,
+#             "stops": 1,
+#         },
+#     ]
 
 
-def weather_api(destination: str) -> Dict:
-    return {
-        "destination": destination,
-        "forecast": "Warm with occasional showers",
-        "temperature_c": "24-31",
-    }
+# def weather_api(destination: str) -> Dict:
+#     return {
+#         "destination": destination,
+#         "forecast": "Warm with occasional showers",
+#         "temperature_c": "24-31",
+#     }
 
 
 def tourist_attraction_api(destination: str) -> List[Dict]:
