@@ -1,7 +1,58 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import httpx
+
+
+def _geoapify_geocode(query: str, key: str) -> Optional[Dict]:
+    resp = httpx.get(
+        "https://api.geoapify.com/v1/geocode/search",
+        params={"text": query, "limit": 1, "apiKey": key},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    features = resp.json().get("features", [])
+    if not features:
+        return None
+    feature = features[0]
+    coords = feature.get("geometry", {}).get("coordinates", [])
+    if len(coords) != 2:
+        return None
+    props = feature.get("properties", {})
+    return {
+        "lon": coords[0],
+        "lat": coords[1],
+        "country": props.get("country"),
+        "city": props.get("city"),
+        "formatted": props.get("formatted"),
+    }
+
+
+def _geoapify_places(lon: float, lat: float, categories: str, key: str, limit: int = 6) -> List[Dict]:
+    resp = httpx.get(
+        "https://api.geoapify.com/v2/places",
+        params={
+            "categories": categories,
+            "filter": f"circle:{lon},{lat},8000",
+            "bias": f"proximity:{lon},{lat}",
+            "limit": limit,
+            "apiKey": key,
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json().get("features", [])
+
+
+def _first_category(props: Dict) -> str:
+    categories = props.get("categories", [])
+    if categories:
+        return str(categories[0]).split(".")[-1].replace("_", "-")
+    return "general"
+
+
+def _contains_category(props: Dict, category_fragment: str) -> bool:
+    return category_fragment in str(props.get("categories", []))
 
 
 # def flight_api(origin: str, destination: str, days: int) -> List[Dict]:
@@ -31,27 +82,163 @@ import httpx
 
 
 def tourist_attraction_api(destination: str) -> List[Dict]:
+    key = os.getenv("GEOAPIFY_API_KEY", "").strip()
+    if key:
+        try:
+            geo = _geoapify_geocode(destination, key)
+            if geo:
+                features = _geoapify_places(
+                    geo["lon"],
+                    geo["lat"],
+                    "tourism.attraction,tourism.sights,entertainment.museum",
+                    key,
+                    limit=6,
+                )
+                rows = []
+                for item in features:
+                    props = item.get("properties", {})
+                    ticket = 15
+                    if _contains_category(props, "museum"):
+                        ticket = 25
+                    rows.append(
+                        {
+                            "name": props.get("name", props.get("formatted", "Unknown attraction")),
+                            "type": _first_category(props),
+                            "ticket_sgd": ticket,
+                            "destination": destination,
+                            "source": "geoapify",
+                        }
+                    )
+                if rows:
+                    return rows
+        except Exception:
+            pass
+
     defaults = [
-        {"name": "Central Heritage District", "type": "culture", "ticket_sgd": 25},
-        {"name": "City Observation Deck", "type": "scenic", "ticket_sgd": 40},
-        {"name": "Night Market Street", "type": "food-shopping", "ticket_sgd": 0},
+        {"name": "Central Heritage District", "type": "culture", "ticket_sgd": 25, "source": "mock"},
+        {"name": "City Observation Deck", "type": "scenic", "ticket_sgd": 40, "source": "mock"},
+        {"name": "Night Market Street", "type": "food-shopping", "ticket_sgd": 0, "source": "mock"},
     ]
     return [{**item, "destination": destination} for item in defaults]
 
 
 def food_api(destination: str) -> List[Dict]:
+    key = os.getenv("GEOAPIFY_API_KEY", "").strip()
+    if key:
+        try:
+            geo = _geoapify_geocode(destination, key)
+            if geo:
+                features = _geoapify_places(
+                    geo["lon"],
+                    geo["lat"],
+                    "catering.restaurant,catering.fast_food,catering.cafe",
+                    key,
+                    limit=6,
+                )
+                rows = []
+                for item in features:
+                    props = item.get("properties", {})
+                    est_cost = 28
+                    if _contains_category(props, "fast_food"):
+                        est_cost = 12
+                    elif _contains_category(props, "cafe"):
+                        est_cost = 18
+                    rows.append(
+                        {
+                            "name": props.get("name", props.get("formatted", "Unknown food spot")),
+                            "style": _first_category(props),
+                            "cost_per_meal_sgd": est_cost,
+                            "destination": destination,
+                            "source": "geoapify",
+                        }
+                    )
+                if rows:
+                    return rows
+        except Exception:
+            pass
+
     return [
-        {"name": "Local Hawker Classics", "style": "local", "cost_per_meal_sgd": 12, "destination": destination},
-        {"name": "Mid-range Bistro", "style": "international", "cost_per_meal_sgd": 28, "destination": destination},
-        {"name": "Diet-friendly Cafe", "style": "healthy", "cost_per_meal_sgd": 22, "destination": destination},
+        {
+            "name": "Local Hawker Classics",
+            "style": "local",
+            "cost_per_meal_sgd": 12,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Mid-range Bistro",
+            "style": "international",
+            "cost_per_meal_sgd": 28,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Diet-friendly Cafe",
+            "style": "healthy",
+            "cost_per_meal_sgd": 22,
+            "destination": destination,
+            "source": "mock",
+        },
     ]
 
 
 def accomodation_api(destination: str) -> List[Dict]:
+    key = os.getenv("GEOAPIFY_API_KEY", "").strip()
+    if key:
+        try:
+            geo = _geoapify_geocode(destination, key)
+            if geo:
+                features = _geoapify_places(
+                    geo["lon"],
+                    geo["lat"],
+                    "accommodation.hotel,accommodation.hostel,accommodation.guest_house",
+                    key,
+                    limit=6,
+                )
+                rows = []
+                for item in features:
+                    props = item.get("properties", {})
+                    nightly = 145
+                    if _contains_category(props, "hostel"):
+                        nightly = 60
+                    elif _contains_category(props, "guest_house"):
+                        nightly = 110
+                    rows.append(
+                        {
+                            "name": props.get("name", props.get("formatted", "Unknown stay")),
+                            "type": _first_category(props),
+                            "nightly_rate_sgd": nightly,
+                            "destination": destination,
+                            "source": "geoapify",
+                        }
+                    )
+                if rows:
+                    return rows
+        except Exception:
+            pass
+
     return [
-        {"name": "City Capsule Inn", "type": "budget", "nightly_rate_sgd": 60, "destination": destination},
-        {"name": "Riverside Hotel", "type": "mid-range", "nightly_rate_sgd": 145, "destination": destination},
-        {"name": "Skyline Suites", "type": "premium", "nightly_rate_sgd": 260, "destination": destination},
+        {
+            "name": "City Capsule Inn",
+            "type": "budget",
+            "nightly_rate_sgd": 60,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Riverside Hotel",
+            "type": "mid-range",
+            "nightly_rate_sgd": 145,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Skyline Suites",
+            "type": "premium",
+            "nightly_rate_sgd": 260,
+            "destination": destination,
+            "source": "mock",
+        },
     ]
 
 
