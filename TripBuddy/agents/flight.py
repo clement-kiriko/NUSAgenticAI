@@ -1,6 +1,12 @@
 import json
 
-from agents.orchestrator import call_tool, invoke_json, log_agent, recent_conversation
+from agents.orchestrator import (
+    call_tool_by_capability,
+    discover_tools,
+    invoke_json,
+    log_agent,
+    recent_conversation,
+)
 from prompts import role_prompt
 
 
@@ -10,8 +16,10 @@ def flight_agent(state: dict) -> dict:
     destination = req["location_preference"]
     days = req["days"]
 
-    options = call_tool(state, "flight_agent", "FlightAPI", "Singapore", destination, days)
-    weather = call_tool(state, "flight_agent", "WeatherAPI", destination)
+    catalog = discover_tools("flight_agent")
+    log_agent("flight_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
+    options = call_tool_by_capability(state, "flight_agent", "flight_search", "Singapore", destination, days)
+    weather = call_tool_by_capability(state, "flight_agent", "weather_current", destination)
     optimization_hints = state.get("optimization_hints", {})
 
     system = role_prompt("Flight Agent")

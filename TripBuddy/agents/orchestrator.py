@@ -1,75 +1,34 @@
 import json
-import os
 from typing import Any, Dict
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-
 from prompts import role_prompt
-from tools import (
-    accomodation_api,
-    flight_api,
-    food_api,
-    maps_api,
-    reviews_api,
-    tourist_attraction_api,
-    weather_api,
-    web_search_api,
-)
+from runtime import LLM_ROUTER, TOOL_GATEWAY
 from utils import debug
 
-TOOL_REGISTRY = {
-    "FlightAPI": flight_api,
-    "WeatherAPI": weather_api,
-    "TouristAttractionAPI": tourist_attraction_api,
-    "FoodAPI": food_api,
-    "AccomsAPI": accomodation_api,
-    "WebSearchAPI": web_search_api,
-    "MapsAPI": maps_api,
-    "ReviewsAPI": reviews_api,
-}
-
-TOOL_PERMISSIONS = {
-    "flight_agent": {"FlightAPI", "WeatherAPI"},
-    "locations_agent": {"TouristAttractionAPI", "WebSearchAPI", "MapsAPI", "ReviewsAPI"},
-    "food_agent": {"FoodAPI", "WebSearchAPI", "ReviewsAPI"},
-    "accomodations_agent": {"AccomsAPI", "WebSearchAPI", "MapsAPI", "ReviewsAPI"},
-    "budget_agent": set(),
-}
-
-
-def advisor_llm() -> ChatOpenAI:
-    model = os.getenv("OPENAI_MODEL", "gpt-5")
-    return ChatOpenAI(model=model, temperature=1)
-
-
 def invoke_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-    try:
-        debug(f"System prompt preview: {system_prompt[:220]}", prefix="LLM")
-        debug(f"User prompt preview: {user_prompt[:360]}", prefix="LLM")
-        raw = advisor_llm().invoke(
-            [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
-        ).content
-        if isinstance(raw, list):
-            raw = "".join(str(part) for part in raw)
-        debug(f"Raw model response: {str(raw)[:420]}", prefix="LLM")
-        return json.loads(raw)
-    except Exception as exc:
-        debug(f"JSON parse or invoke failure: {exc}", prefix="LLM")
-        return {}
+    debug(f"System prompt preview: {system_prompt[:220]}", prefix="LLM")
+    debug(f"User prompt preview: {user_prompt[:360]}", prefix="LLM")
+    return LLM_ROUTER.invoke_json(system_prompt, user_prompt, task_type="reasoning")
+
+
+def llm_chat(messages: list, task_type: str = "general", tools=None, tool_choice: str | None = None):
+    return LLM_ROUTER.chat(messages=messages, task_type=task_type, tools=tools, tool_choice=tool_choice)
+
+
+def discover_tools(agent_name: str):
+    return TOOL_GATEWAY.discover(agent_name)
 
 
 def call_tool(state: dict, agent_name: str, tool_name: str, *args, **kwargs):
-    allowed = TOOL_PERMISSIONS.get(agent_name, set())
-    if tool_name not in allowed:
-        raise PermissionError(f"{agent_name} is not allowed to call {tool_name}")
-    result = TOOL_REGISTRY[tool_name](*args, **kwargs)
-    debug(f"{agent_name} -> {tool_name} args={list(args)}", prefix="TOOL")
-    debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
-    state.setdefault("tool_calls", []).append(
-        {"agent": agent_name, "tool": tool_name, "args": list(args)}
-    )
-    return result
+    return TOOL_GATEWAY.invoke(state, agent_name, tool_name, *args, **kwargs)
+
+
+def call_tool_by_capability(state: dict, agent_name: str, capability: str, *args, **kwargs):
+    return TOOL_GATEWAY.invoke_capability(state, agent_name, capability, *args, **kwargs)
+
+
+def tool_schema(agent_name: str, tool_name: str) -> Dict[str, Any]:
+    return TOOL_GATEWAY.get_llm_schema(agent_name, tool_name)
 
 
 def recent_conversation(state: dict, limit: int = 8) -> str:

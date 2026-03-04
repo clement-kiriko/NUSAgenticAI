@@ -1,6 +1,12 @@
 import json
 
-from agents.orchestrator import call_tool, invoke_json, log_agent, recent_conversation
+from agents.orchestrator import (
+    call_tool_by_capability,
+    discover_tools,
+    invoke_json,
+    log_agent,
+    recent_conversation,
+)
 from prompts import role_prompt
 
 
@@ -9,10 +15,14 @@ def accomodations_agent(state: dict) -> dict:
     req = state["user_requirements"]
     destination = req["location_preference"]
     days = req["days"]
-    options = call_tool(state, "accomodations_agent", "AccomsAPI", destination)
-    search_hits = call_tool(state, "accomodations_agent", "WebSearchAPI", f"Best areas to stay in {destination}", 5)
-    transit_hint = call_tool(state, "accomodations_agent", "MapsAPI", "airport", destination)
-    review_hits = call_tool(state, "accomodations_agent", "ReviewsAPI", f"Hotels in {destination}", 5)
+    catalog = discover_tools("accomodations_agent")
+    log_agent("accomodations_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
+    options = call_tool_by_capability(state, "accomodations_agent", "accommodation_search", destination)
+    search_hits = call_tool_by_capability(
+        state, "accomodations_agent", "geo_search", f"Best areas to stay in {destination}", 5
+    )
+    transit_hint = call_tool_by_capability(state, "accomodations_agent", "route_estimate", "airport", destination)
+    review_hits = call_tool_by_capability(state, "accomodations_agent", "place_signals", f"Hotels in {destination}", 5)
     optimization_hints = state.get("optimization_hints", {})
 
     system = role_prompt("Accomodations Agent")

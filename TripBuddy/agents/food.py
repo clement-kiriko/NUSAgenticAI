@@ -1,49 +1,22 @@
 import json
-import os
 
-import openai
-
-from agents.orchestrator import call_tool, invoke_json, log_agent, recent_conversation
+from agents.orchestrator import (
+    call_tool,
+    call_tool_by_capability,
+    discover_tools,
+    invoke_json,
+    llm_chat,
+    log_agent,
+    recent_conversation,
+    tool_schema,
+)
 from prompts import role_prompt
-from tools.food_finder import search_dining
-
-_SEARCH_DINING_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search_dining",
-        "description": "Search for real nearby dining options given a location.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "location": {
-                    "type": "string",
-                    "description": "The location to search near, e.g. 'Orchard Road, Singapore'",
-                },
-                "radius_m": {
-                    "type": "integer",
-                    "description": "Search radius in metres (default 500)",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max number of results to return (default 5)",
-                },
-            },
-            "required": ["location"],
-        },
-    },
-}
 
 
 def _run_dining_tool_loop(state: dict, destination: str) -> list:
-    """Two-step agentic loop mirroring the reference pattern.
-
-    Step 1 – First LLM call: the model decides to invoke ``search_dining``.
-    Step 2 – Execute the tool, then a second LLM call formats the raw results.
-    Returns the list of live venue dicts produced by ``search_dining``.
-    """
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    model = os.getenv("OPENAI_MODEL", "gpt-4o")
-
+    """Two-step tool-use loop routed via LLM Router + Tool Gateway."""
+    search_tool_name = "search_dining"
+    schema = tool_schema("food_agent", search_tool_name)
     messages = [
         {
             "role": "system",
@@ -55,27 +28,16 @@ def _run_dining_tool_loop(state: dict, destination: str) -> list:
         {"role": "user", "content": f"Find dining options near {destination}."},
     ]
 
-    # First call — let the model decide to use the tool
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        tools=[_SEARCH_DINING_TOOL],
-        tool_choice="auto",
-    )
+    response = llm_chat(messages, task_type="tool_use", tools=[schema], tool_choice="auto")
     message = response.choices[0].message
 
     live_results: list = []
     if message.tool_calls:
         messages.append(message)
-
         for tool_call in message.tool_calls:
             args = json.loads(tool_call.function.arguments)
             log_agent("food_agent", f"[Tool Call] search_dining({args})")
-            # Register the call in framework state for auditability
-            state.setdefault("tool_calls", []).append(
-                {"agent": "food_agent", "tool": "search_dining", "args": args}
-            )
-            results = search_dining(**args)
+            results = call_tool(state, "food_agent", search_tool_name, **args)
             live_results = results
             messages.append(
                 {
@@ -85,12 +47,9 @@ def _run_dining_tool_loop(state: dict, destination: str) -> list:
                 }
             )
 
-        # Second call — model acknowledges / summarises the tool results
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-        )
-        log_agent("food_agent", f"Dining tool loop complete: {response.choices[0].message.content[:120]}")
+        response = llm_chat(messages, task_type="tool_use")
+        summary = response.choices[0].message.content or ""
+        log_agent("food_agent", f"Dining tool loop complete: {str(summary)[:120]}")
 
     return live_results
 
@@ -99,13 +58,13 @@ def food_agent(state: dict) -> dict:
     log_agent("food_agent", "Generating meal strategy from FoodAPI and team context")
     req = state["user_requirements"]
     destination = req["location_preference"]
+    catalog = discover_tools("food_agent")
+    log_agent("food_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
 
-    # Existing framework tool calls (mock data + web/review hits)
-    options = call_tool(state, "food_agent", "FoodAPI", destination)
-    search_hits = call_tool(state, "food_agent", "WebSearchAPI", f"Best food areas in {destination}", 5)
-    review_hits = call_tool(state, "food_agent", "ReviewsAPI", f"Restaurants in {destination}", 5)
+    options = call_tool_by_capability(state, "food_agent", "food_catalog", destination)
+    search_hits = call_tool_by_capability(state, "food_agent", "geo_search", f"Best food areas in {destination}", 5)
+    review_hits = call_tool_by_capability(state, "food_agent", "place_signals", f"Restaurants in {destination}", 5)
 
-    # Agentic two-step loop: model calls search_dining, results fed back to LLM
     live_options = _run_dining_tool_loop(state, destination)
     log_agent("food_agent", f"search_dining returned {len(live_options)} live venue(s)")
 
