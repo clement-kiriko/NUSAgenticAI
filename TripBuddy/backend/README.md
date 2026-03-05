@@ -1,4 +1,12 @@
-﻿# TripBuddy Multi-Agent Travel Advisor (LangGraph)
+# TripBuddy Multi-Agent Travel Advisor (LangGraph)
+
+## Tech Stack
+- Python
+- FastAPI
+- WebSocket + SSE streaming
+- LangGraph
+- MCP (stdio JSON-RPC)
+- OpenAI API
 
 ## Implemented Backend Agents
 - `Flight` agent (`FlightAPI`, `WeatherAPI`)
@@ -412,6 +420,7 @@ Final Approved Report
 - Pipeline + cloud infra deployment
 - External monitoring stack (Kafka, Grafana, Prometheus, GitHub Actions, LangFuse, Promptfoo, LangChain traces)
 - Production-grade MCP hardening (authn/authz, transport hardening, observability, multi-tenant policy)
+
 
 
 

@@ -2,6 +2,13 @@
 
 React frontend for TripBuddy travel planning.
 
+## Tech Stack
+- ReactJS
+- Vite
+- React Router
+- Browser WebSocket API
+- Fetch API (REST integration with FastAPI backend)
+
 ## Features
 - One-page travel query intake form
 - Optional `/help` tutorial page
@@ -11,6 +18,20 @@ React frontend for TripBuddy travel planning.
 - Optimization pass indicator (`Optimization pass x/y`) during reruns
 - Collapsible `Details` panel for condensed technical progress logs
 - Stale session recovery: auto-reset local state when backend returns unknown/expired session
+
+## Frontend Structure
+- `src/App.jsx`: app routes only
+- `src/pages/HomePage.jsx`: planner page composition
+- `src/pages/HelpPage.jsx`: tutorial page
+- `src/components/TravelForm.jsx`: intake form UI
+- `src/components/PlannerChat.jsx`: chat panel and refinement controls
+- `src/components/ProgressSteps.jsx`: step status cards
+- `src/components/ReportPanel.jsx`: report renderer
+- `src/hooks/usePlannerSession.js`: planner state orchestration and UI actions
+- `src/services/plannerApi.js`: REST API calls
+- `src/services/plannerSocket.js`: WebSocket transport helpers
+- `src/utils/planner.js`: shared planner helpers/constants
+- `src/assets/styles.css`: global app styles
 
 ## Requirements
 - Node.js 18+
