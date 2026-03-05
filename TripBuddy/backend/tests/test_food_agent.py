@@ -4,7 +4,7 @@ Standalone test for the food_agent.
 Runs the agent against a few Southeast Asia / Japan destinations and
 prints the resulting food plan for each. No other agents are invoked.
 
-Usage (from TripBuddy/):
+Usage (from TripBuddy/backend/):
     python -m pytest tests/test_food_agent.py -v -s
   or simply:
     python tests/test_food_agent.py
@@ -78,7 +78,7 @@ def test_food_agent(location: str, days: int):
 
     # Confirm tool_calls were recorded
     tool_names = [t["tool"] for t in result.get("tool_calls", [])]
-    assert "FoodAPI" in tool_names, f"[{location}] FoodAPI not recorded in tool_calls"
+    assert "food_catalog" in tool_names, f"[{location}] food_catalog not recorded in tool_calls"
 
     # Confirm agent appended to conversation
     speakers = [s for s, _ in result.get("conversation", [])]

@@ -5,6 +5,13 @@ from prompts import role_prompt
 from runtime import LLM_ROUTER, TOOL_GATEWAY
 from utils import debug
 
+
+def _emit_progress(state: dict, step: str, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": step, "message": message})
+
+
 def invoke_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
     debug(f"System prompt preview: {system_prompt[:220]}", prefix="LLM")
     debug(f"User prompt preview: {user_prompt[:360]}", prefix="LLM")
@@ -44,6 +51,7 @@ def log_agent(agent_name: str, message: str):
 def orchestrator_agent(state: dict) -> dict:
     next_round = int(state.get("round_number", 0)) + 1
     state["round_number"] = next_round
+    _emit_progress(state, "orchestrator", f"Starting planning round {next_round}.")
     log_agent("orchestrator", f"Starting round {next_round}")
     state.setdefault("conversation", []).append(
         (
@@ -59,6 +67,7 @@ def orchestrator_agent(state: dict) -> dict:
 
 def consolidation_agent(state: dict) -> dict:
     req = state["user_requirements"]
+    _emit_progress(state, "consolidation", "Combining all specialist suggestions into one final plan.")
     log_agent("consolidation", "Combining specialist outputs into unified report")
     system = role_prompt("Orchestrator / Consolidation Agent")
     user = (
@@ -90,6 +99,7 @@ def consolidation_agent(state: dict) -> dict:
         }
 
     state["report"] = report
+    _emit_progress(state, "consolidation", "Final travel report is ready.")
     log_agent("consolidation", f"Report ready with keys: {list(report.keys())}")
     state.setdefault("conversation", []).append(("consolidation", report))
     return state

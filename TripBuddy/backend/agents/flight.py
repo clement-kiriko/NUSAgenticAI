@@ -10,15 +10,24 @@ from agents.orchestrator import (
 from prompts import role_prompt
 
 
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "flight", "message": message})
+
+
 def flight_agent(state: dict) -> dict:
     log_agent("flight_agent", "Reviewing requirements and flight/weather options")
     req = state["user_requirements"]
     destination = req["location_preference"]
     days = req["days"]
+    _emit_progress(state, f"Checking trip dates ({req.get('start_date')} to {req.get('end_date')}) for {destination}.")
 
     catalog = discover_tools("flight_agent")
     log_agent("flight_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
+    _emit_progress(state, "Searching flight options.")
     options = call_tool_by_capability(state, "flight_agent", "flight_search", "Singapore", destination, days)
+    _emit_progress(state, "Querying destination weather.")
     weather = call_tool_by_capability(state, "flight_agent", "weather_current", destination)
     optimization_hints = state.get("optimization_hints", {})
 
@@ -36,12 +45,15 @@ def flight_agent(state: dict) -> dict:
     plan = invoke_json(system, user)
     if not plan:
         log_agent("flight_agent", "LLM output invalid JSON, using deterministic fallback")
-        selected = options[-1] if optimization_hints.get("target_reduction_sgd", 0) > 0 else options[0]
+        if options:
+            selected = options[-1] if optimization_hints.get("target_reduction_sgd", 0) > 0 else options[0]
+        else:
+            selected = {"route": "No live flight options found", "price_sgd": 0}
         plan = {
             "selected_option": selected,
             "rationale": "Cost-optimized option based on current budget pressure.",
-            "weather_notes": weather["forecast"],
-            "estimated_total_sgd": selected["price_sgd"],
+            "weather_notes": weather.get("forecast", "Weather data unavailable."),
+            "estimated_total_sgd": selected.get("price_sgd", 0),
         }
 
     state["flight_plan"] = plan

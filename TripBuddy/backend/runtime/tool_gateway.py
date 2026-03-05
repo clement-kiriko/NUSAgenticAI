@@ -36,12 +36,44 @@ class ToolGateway:
         if agent_name not in spec.allowed_agents:
             raise PermissionError(f"{agent_name} is not allowed to call {tool_name}")
 
+        emit = state.get("_emit_event")
+        tool_labels = {
+            "FlightAPI": "flight options",
+            "WeatherAPI": "weather conditions",
+            "TouristAttractionAPI": "attractions",
+            "food_catalog": "food options",
+            "food_search_live": "live dining spots",
+            "AccomsAPI": "accommodation options",
+            "places_search": "destination places",
+            "route_estimate": "route and travel-time context",
+            "place_signals": "popularity signals",
+        }
+        human_tool = tool_labels.get(tool_name, tool_name)
+        if callable(emit):
+            emit(
+                {
+                    "type": "tool_started",
+                    "agent": agent_name,
+                    "tool": tool_name,
+                    "message": f"Checking {human_tool}...",
+                }
+            )
+
         result = spec.handler(*args, **kwargs)
         debug(f"{agent_name} -> {tool_name} args={list(args)} kwargs={kwargs}", prefix="TOOL")
         debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
         state.setdefault("tool_calls", []).append(
             {"agent": agent_name, "tool": tool_name, "args": list(args), "kwargs": kwargs}
         )
+        if callable(emit):
+            emit(
+                {
+                    "type": "tool_completed",
+                    "agent": agent_name,
+                    "tool": tool_name,
+                    "message": f"Received {human_tool}.",
+                }
+            )
         return result
 
     def invoke_capability(self, state: dict, agent_name: str, capability: str, *args, **kwargs):

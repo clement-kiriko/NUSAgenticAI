@@ -1,0 +1,281 @@
+:root {
+  --bg: #f4f7f5;
+  --bg2: #e7efe8;
+  --ink: #1d2b26;
+  --muted: #5c6d66;
+  --card: #ffffffcc;
+  --line: #c6d4cc;
+  --accent: #0d7c66;
+  --accent-2: #deefe9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: Manrope, sans-serif;
+  background: radial-gradient(circle at 10% 10%, #fdfefc, var(--bg)) fixed;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 56px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.topbar h1 {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.7rem;
+  margin: 0;
+}
+
+.topbar a {
+  text-decoration: none;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 16px;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  background: var(--card);
+  backdrop-filter: blur(7px);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 10px 30px #17352a14;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  font-weight: 600;
+}
+
+input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 11px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.step {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  transition: transform 120ms ease;
+}
+
+.step.running {
+  border-color: var(--accent);
+  background: var(--accent-2);
+  transform: translateY(-1px);
+}
+
+.step.done small {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.messages {
+  margin-top: 12px;
+  min-height: 110px;
+  max-height: 200px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  max-width: 75%;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.92rem;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: #d9f2ea;
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: #ecf0ee;
+}
+
+.chat-input {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+}
+
+.form-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-actions .error {
+  margin-right: auto;
+}
+
+.chat-footer {
+  margin-top: 8px;
+  padding-top: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.danger-btn {
+  background: #b93a3a;
+}
+
+.danger-btn:hover {
+  background: #9e2f2f;
+}
+
+.report-panel {
+  margin-top: 16px;
+}
+
+.report-block {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  margin: 10px 0;
+  background: #fff;
+}
+
+.report-block h3 {
+  margin: 0 0 8px;
+}
+
+.kv-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.kv-item > span {
+  font-weight: 700;
+}
+
+.help ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.error {
+  color: #9c2f2f;
+  margin: 0;
+}
+
+.status-msg {
+  margin-top: 2px;
+}
+
+.pass-badge {
+  margin: 8px 0 0;
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #9cc7b8;
+  background: #e9f5f0;
+  color: #205845;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.details-panel {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fafcfb;
+  padding: 6px 10px;
+}
+
+.details-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.details-list {
+  margin-top: 8px;
+}
+
+.details-list p {
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  color: #4d5f58;
+}
+
+.details-list p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 940px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

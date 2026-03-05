@@ -1,9 +1,9 @@
-# TripBuddy Multi-Agent Travel Advisor (LangGraph)
+﻿# TripBuddy Multi-Agent Travel Advisor (LangGraph)
 
 ## Implemented Backend Agents
 - `Flight` agent (`FlightAPI`, `WeatherAPI`)
 - `Locations` agent (`TouristAttractionAPI`)
-- `Food` agent (`FoodAPI`, `search_dining` in `tools/food_finder.py`)
+- `Food` agent (`food_catalog`, `food_search_live` in `tools/food_finder.py`)
 - `Accomodations` agent (`AccomsAPI`)
 - `Budget` agent (cost consolidation in SGD)
 - `Orchestrator/Consolidation` agent
@@ -22,6 +22,9 @@ Default model is GPT-5 via `OPENAI_MODEL` (default: `gpt-5`).
 3. Consolidated report is shown to user.
 4. If budget is exceeded, system auto-runs optimization rounds (max 3 total rounds) by swapping to cheaper options.
 5. User can provide feedback; the workflow stops at satisfaction or when max rounds are reached.
+6. Auto-rerun is triggered only when there is a concrete reason:
+   - budget not met, or
+   - critical output fields are missing (flight/locations/food/accommodations/budget/report core sections).
 
 ## Architecture Mapping To Rubric
 - Multiple agents with distinct personas:
@@ -44,12 +47,12 @@ Default model is GPT-5 via `OPENAI_MODEL` (default: `gpt-5`).
     - `FlightAPI` from `tools/aviationstack_api.py` (AviationStack flight data when `AVIATIONSTACK_API_KEY` is set, otherwise mock fallback)
     - `WeatherAPI` from `tools/weatherstack_api.py` (WeatherStack weather data when `WEATHERSTACK_API_KEY` is set, otherwise mock fallback)
     - `TouristAttractionAPI` from `tools/geoapify_tools.py` (Geoapify Places near destination when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
-    - `FoodAPI` from `tools/geoapify_tools.py` (Geoapify Places food categories near destination, otherwise mock fallback)
-    - `search_dining` (OpenStreetMap Nominatim geocoding + Overpass dining POI lookup; no API key required, subject to public endpoint limits)
+    - `food_catalog` from `tools/geoapify_tools.py` (planner-oriented food options)
+    - `food_search_live` (OpenStreetMap Nominatim + Overpass live lookup, with Geoapify fallback)
     - `AccomsAPI` from `tools/geoapify_tools.py` (Geoapify Places accommodation categories near destination, otherwise mock fallback)
-    - `WebSearchAPI` from `tools/geoapify_tools.py` (Geoapify search/geocode when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
-    - `MapsAPI` from `tools/geoapify_tools.py` (Geoapify routing for proximity/travel-time context, otherwise mock fallback)
-    - `ReviewsAPI` from `tools/geoapify_tools.py` (Geoapify place signals; fallback mock when unavailable)
+    - `places_search` from `tools/geoapify_tools.py` (Geoapify search/geocode when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
+    - `route_estimate` from `tools/geoapify_tools.py` (Geoapify routing for proximity/travel-time context, otherwise mock fallback)
+    - `place_signals` from `tools/geoapify_tools.py` (Geoapify place signals; fallback mock when unavailable)
 - Tool access control:
   - Centralized governance in `runtime/tool_registry.py` (`allowed_agents`) enforced by `ToolGateway`.
   - Unauthorized tool calls raise `PermissionError`.
@@ -77,6 +80,37 @@ uv sync
 uv run python main.py
 ```
 
+## Web UI (React + FastAPI)
+Run backend API:
+
+```bash
+poetry run uvicorn api_server:app --reload --port 8000
+```
+
+Then run frontend in another terminal:
+
+```bash
+cd ..\\frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+### API Endpoints
+- `GET /api/health`
+- `POST /api/session` (create planning session from intake fields)
+- `GET /api/session/{session_id}/snapshot` (latest run state + event history for reconnect recovery)
+- `POST /api/session/{session_id}/stop` (request active planning run to stop)
+- `WS /ws/session/{session_id}` (primary real-time planning + chat refinement channel)
+- `POST /api/session/{session_id}/plan/stream` (SSE progress stream for planning/refinement)
+- `POST /api/session/{session_id}/plan` (non-stream fallback)
+
+WebSocket behavior notes:
+- Planner runs continue server-side even if the WebSocket client disconnects mid-run.
+- On reconnect, server sends a `snapshot` event with accumulated run events and latest report state.
+- Planner events include round metadata (`round`, `max_rounds`) and rerun context (`reason`, `missing_fields`, `within_budget`) for frontend UX.
+
 ## MCP Server (stdio)
 Run the MCP server adapter:
 
@@ -96,11 +130,11 @@ Example JSON-RPC messages (one JSON object per line):
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"agent_name":"food_agent"}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"search_dining","arguments":{"location":"Tokyo","radius_m":800,"limit":3}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"food_search_live","arguments":{"location":"Tokyo","radius_m":800,"limit":3}}}
 ```
 
 ### Quick Test (PowerShell)
-Run each command from the `TripBuddy` folder:
+Run each command from the `backend` folder:
 
 ```powershell
 '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | poetry run python mcp_server.py
@@ -122,10 +156,10 @@ Example input/output:
 '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"agent_name":"food_agent"}}' | poetry run python mcp_server.py
 ```
 
-Expected: a JSON response containing a `tools` array (for example `FoodAPI`, `WebSearchAPI`, `ReviewsAPI`, `search_dining`).
+Expected: a JSON response containing a `tools` array (for example `food_catalog`, `places_search`, `place_signals`, `food_search_live`).
 
 ```powershell
-'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"search_dining","arguments":{"location":"Tokyo","limit":2}}}' | poetry run python mcp_server.py
+'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"food_search_live","arguments":{"location":"Tokyo","limit":2}}}' | poetry run python mcp_server.py
 ```
 
 Expected: a JSON response with `isError: false` and tool output in `content`.
@@ -376,6 +410,9 @@ Final Approved Report
 
 ## Next Phases (Not Implemented Yet)
 - Pipeline + cloud infra deployment
-- Frontend UI
 - External monitoring stack (Kafka, Grafana, Prometheus, GitHub Actions, LangFuse, Promptfoo, LangChain traces)
 - Production-grade MCP hardening (authn/authz, transport hardening, observability, multi-tenant policy)
+
+
+
+

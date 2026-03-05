@@ -10,11 +10,18 @@ from agents.orchestrator import (
 from prompts import role_prompt
 
 
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "accomodations", "message": message})
+
+
 def accomodations_agent(state: dict) -> dict:
     log_agent("accomodations_agent", "Evaluating stay options against preferences")
     req = state["user_requirements"]
     destination = req["location_preference"]
     days = req["days"]
+    _emit_progress(state, f"Comparing stay options and neighborhoods in {destination}.")
     catalog = discover_tools("accomodations_agent")
     log_agent("accomodations_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
     options = call_tool_by_capability(state, "accomodations_agent", "accommodation_search", destination)
@@ -24,6 +31,7 @@ def accomodations_agent(state: dict) -> dict:
     transit_hint = call_tool_by_capability(state, "accomodations_agent", "route_estimate", "airport", destination)
     review_hits = call_tool_by_capability(state, "accomodations_agent", "place_signals", f"Hotels in {destination}", 5)
     optimization_hints = state.get("optimization_hints", {})
+    _emit_progress(state, "Selecting accommodation trade-offs for comfort vs budget.")
 
     system = role_prompt("Accomodations Agent")
     user = (
@@ -34,19 +42,24 @@ def accomodations_agent(state: dict) -> dict:
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
         f"AccomsAPI: {json.dumps(options)}\n"
-        f"WebSearchAPI: {json.dumps(search_hits)}\n"
-        f"MapsAPI: {json.dumps(transit_hint)}\n"
-        f"ReviewsAPI: {json.dumps(review_hits)}"
+        f"places_search: {json.dumps(search_hits)}\n"
+        f"route_estimate: {json.dumps(transit_hint)}\n"
+        f"place_signals: {json.dumps(review_hits)}"
     )
     plan = invoke_json(system, user)
     if not plan:
         log_agent("accomodations_agent", "LLM output invalid JSON, using deterministic fallback")
-        selected = options[0] if optimization_hints.get("target_reduction_sgd", 0) > 0 else options[1]
+        if not options:
+            selected = {"name": "No live accommodation options found", "nightly_rate_sgd": 0}
+        elif optimization_hints.get("target_reduction_sgd", 0) > 0:
+            selected = options[0]
+        else:
+            selected = options[1] if len(options) > 1 else options[0]
         plan = {
             "selected_stay": selected,
             "area_notes": "Choose well-connected area to control commute costs.",
             "tradeoffs": "Selected option balances budget and access to attractions.",
-            "estimated_total_sgd": selected["nightly_rate_sgd"] * days,
+            "estimated_total_sgd": selected.get("nightly_rate_sgd", 0) * days,
         }
 
     state["accomodations_plan"] = plan

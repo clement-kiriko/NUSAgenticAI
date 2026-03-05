@@ -11,7 +11,7 @@ from tools import (
     weather_api,
     web_search_api,
 )
-from tools.food_finder import search_dining
+from tools.food_finder import food_search_live, search_dining
 
 
 @dataclass(frozen=True)
@@ -47,10 +47,10 @@ def build_tool_registry() -> Dict[str, ToolSpec]:
             capabilities={"attraction_search"},
             allowed_agents={"locations_agent"},
         ),
-        "FoodAPI": ToolSpec(
-            name="FoodAPI",
+        "food_catalog": ToolSpec(
+            name="food_catalog",
             handler=food_api,
-            description="Find food spots near destination.",
+            description="Planner-oriented food catalog for a destination.",
             capabilities={"food_catalog"},
             allowed_agents={"food_agent"},
         ),
@@ -61,37 +61,37 @@ def build_tool_registry() -> Dict[str, ToolSpec]:
             capabilities={"accommodation_search"},
             allowed_agents={"accomodations_agent"},
         ),
-        "WebSearchAPI": ToolSpec(
-            name="WebSearchAPI",
+        "places_search": ToolSpec(
+            name="places_search",
             handler=web_search_api,
-            description="Search destination places/geocoding signals.",
+            description="Generic destination places search/geocoding signals.",
             capabilities={"geo_search"},
             allowed_agents={"locations_agent", "food_agent", "accomodations_agent"},
         ),
-        "MapsAPI": ToolSpec(
-            name="MapsAPI",
+        "route_estimate": ToolSpec(
+            name="route_estimate",
             handler=maps_api,
             description="Get route/proximity travel-time context.",
             capabilities={"route_estimate"},
             allowed_agents={"locations_agent", "accomodations_agent"},
         ),
-        "ReviewsAPI": ToolSpec(
-            name="ReviewsAPI",
+        "place_signals": ToolSpec(
+            name="place_signals",
             handler=reviews_api,
             description="Get place signals/review proxies.",
             capabilities={"place_signals"},
             allowed_agents={"locations_agent", "food_agent", "accomodations_agent"},
         ),
-        "search_dining": ToolSpec(
-            name="search_dining",
-            handler=search_dining,
-            description="Search nearby dining options from OSM Nominatim + Overpass.",
+        "food_search_live": ToolSpec(
+            name="food_search_live",
+            handler=food_search_live,
+            description="Search nearby dining options (Overpass primary, Geoapify fallback).",
             capabilities={"food_live_search"},
             allowed_agents={"food_agent"},
             llm_schema={
                 "type": "function",
                 "function": {
-                    "name": "search_dining",
+                    "name": "food_search_live",
                     "description": "Search for real nearby dining options given a location.",
                     "parameters": {
                         "type": "object",
@@ -114,6 +114,58 @@ def build_tool_registry() -> Dict[str, ToolSpec]:
                 },
             },
         ),
+        # Backward-compatible aliases (direct calls only; no capabilities).
+        "FoodAPI": ToolSpec(
+            name="FoodAPI",
+            handler=food_api,
+            description="Alias of food_catalog.",
+            capabilities=set(),
+            allowed_agents={"food_agent"},
+        ),
+        "WebSearchAPI": ToolSpec(
+            name="WebSearchAPI",
+            handler=web_search_api,
+            description="Alias of places_search.",
+            capabilities=set(),
+            allowed_agents={"locations_agent", "food_agent", "accomodations_agent"},
+        ),
+        "MapsAPI": ToolSpec(
+            name="MapsAPI",
+            handler=maps_api,
+            description="Alias of route_estimate.",
+            capabilities=set(),
+            allowed_agents={"locations_agent", "accomodations_agent"},
+        ),
+        "ReviewsAPI": ToolSpec(
+            name="ReviewsAPI",
+            handler=reviews_api,
+            description="Alias of place_signals.",
+            capabilities=set(),
+            allowed_agents={"locations_agent", "food_agent", "accomodations_agent"},
+        ),
+        "search_dining": ToolSpec(
+            name="search_dining",
+            handler=search_dining,
+            description="Alias of food_search_live.",
+            capabilities=set(),
+            allowed_agents={"food_agent"},
+            llm_schema={
+                "type": "function",
+                "function": {
+                    "name": "search_dining",
+                    "description": "Alias of food_search_live.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "location": {"type": "string"},
+                            "radius_m": {"type": "integer"},
+                            "limit": {"type": "integer"},
+                        },
+                        "required": ["location"],
+                    },
+                },
+            },
+        ),
     }
 
 
@@ -121,6 +173,9 @@ def serialize_tool_catalog(registry: Dict[str, ToolSpec], agent_name: str) -> Li
     rows: List[Dict[str, Any]] = []
     for spec in registry.values():
         if agent_name in spec.allowed_agents:
+            # Hide compatibility aliases from normal tool discovery.
+            if not spec.capabilities:
+                continue
             rows.append(
                 {
                     "name": spec.name,

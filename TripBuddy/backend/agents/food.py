@@ -13,16 +13,22 @@ from agents.orchestrator import (
 from prompts import role_prompt
 
 
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "food", "message": message})
+
+
 def _run_dining_tool_loop(state: dict, destination: str) -> list:
     """Two-step tool-use loop routed via LLM Router + Tool Gateway."""
-    search_tool_name = "search_dining"
+    search_tool_name = "food_search_live"
     schema = tool_schema("food_agent", search_tool_name)
     messages = [
         {
             "role": "system",
             "content": (
                 "You are a travel dining assistant. "
-                "Use the search_dining tool to find real dining options for the given location."
+                "Use the food_search_live tool to find real dining options for the given location."
             ),
         },
         {"role": "user", "content": f"Find dining options near {destination}."},
@@ -36,7 +42,7 @@ def _run_dining_tool_loop(state: dict, destination: str) -> list:
         messages.append(message)
         for tool_call in message.tool_calls:
             args = json.loads(tool_call.function.arguments)
-            log_agent("food_agent", f"[Tool Call] search_dining({args})")
+            log_agent("food_agent", f"[Tool Call] food_search_live({args})")
             results = call_tool(state, "food_agent", search_tool_name, **args)
             live_results = results
             messages.append(
@@ -55,9 +61,10 @@ def _run_dining_tool_loop(state: dict, destination: str) -> list:
 
 
 def food_agent(state: dict) -> dict:
-    log_agent("food_agent", "Generating meal strategy from FoodAPI and team context")
+    log_agent("food_agent", "Generating meal strategy from food_catalog and team context")
     req = state["user_requirements"]
     destination = req["location_preference"]
+    _emit_progress(state, f"Exploring food options and dietary fit in {destination}.")
     catalog = discover_tools("food_agent")
     log_agent("food_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
 
@@ -65,10 +72,12 @@ def food_agent(state: dict) -> dict:
     search_hits = call_tool_by_capability(state, "food_agent", "geo_search", f"Best food areas in {destination}", 5)
     review_hits = call_tool_by_capability(state, "food_agent", "place_signals", f"Restaurants in {destination}", 5)
 
+    _emit_progress(state, "Looking up live dining spots nearby.")
     live_options = _run_dining_tool_loop(state, destination)
-    log_agent("food_agent", f"search_dining returned {len(live_options)} live venue(s)")
+    log_agent("food_agent", f"food_search_live returned {len(live_options)} live venue(s)")
 
     optimization_hints = state.get("optimization_hints", {})
+    _emit_progress(state, "Building a day-by-day meal strategy.")
 
     system = role_prompt("Food Agent")
     user = (
@@ -78,19 +87,19 @@ def food_agent(state: dict) -> dict:
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
-        f"FoodAPI (mock): {json.dumps(options)}\n"
-        f"Live dining results (search_dining): {json.dumps(live_options)}\n"
-        f"WebSearchAPI: {json.dumps(search_hits)}\n"
-        f"ReviewsAPI: {json.dumps(review_hits)}"
+        f"food_catalog: {json.dumps(options)}\n"
+        f"food_search_live: {json.dumps(live_options)}\n"
+        f"places_search: {json.dumps(search_hits)}\n"
+        f"place_signals: {json.dumps(review_hits)}"
     )
     plan = invoke_json(system, user)
     if not plan:
         log_agent("food_agent", "LLM output invalid JSON, using deterministic fallback")
         days = req["days"]
         cheaper = optimization_hints.get("target_reduction_sgd", 0) > 0
-        meal_cost = options[0]["cost_per_meal_sgd"] * 2 + (
-            options[0]["cost_per_meal_sgd"] if cheaper else options[1]["cost_per_meal_sgd"]
-        )
+        base_cost = options[0]["cost_per_meal_sgd"] if options else 12
+        premium_cost = options[1]["cost_per_meal_sgd"] if len(options) > 1 else base_cost
+        meal_cost = base_cost * 2 + (base_cost if cheaper else premium_cost)
         plan = {
             "meal_plan": (
                 "Breakfast local, lunch hawker, dinner mostly hawker/local stalls."

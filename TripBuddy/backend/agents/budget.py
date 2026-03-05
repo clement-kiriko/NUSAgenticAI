@@ -2,6 +2,12 @@ from prompts import role_prompt
 from agents.orchestrator import invoke_json, log_agent, recent_conversation
 
 
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "budget", "message": message})
+
+
 def _get_cost(plan: dict) -> float:
     value = plan.get("estimated_total_sgd", 0)
     try:
@@ -12,6 +18,7 @@ def _get_cost(plan: dict) -> float:
 
 def budget_agent(state: dict) -> dict:
     log_agent("budget_agent", "Reconciling all agent estimates against user budget")
+    _emit_progress(state, "Checking total trip cost against your budget.")
     req = state["user_requirements"]
     total_budget = float(req["budget_sgd"])
 
@@ -52,6 +59,7 @@ def budget_agent(state: dict) -> dict:
         "locations": "Prioritize free/low-ticket attractions and cluster nearby activities.",
     }
     if not within_budget:
+        _emit_progress(state, f"Plan is over budget by SGD {shortfall:.2f}. Preparing optimization hints.")
         log_agent(
             "budget_agent",
             f"Budget over by SGD {shortfall}. Generated optimization_hints for next round.",
