@@ -19,6 +19,18 @@ React frontend for TripBuddy travel planning.
 - Collapsible `Details` panel for condensed technical progress logs
 - Stale session recovery: auto-reset local state when backend returns unknown/expired session
 
+## Screenshots
+> Place image files in `TripBuddy/frontend/docs/images/` with the names below.
+
+### Planner
+![TripBuddy Planner](./docs/images/planner.png)
+
+### Report (Overview & Recommendations)
+![TripBuddy Report Overview](./docs/images/report-overview.png)
+
+### Report (Budget, Risks, Next Iteration)
+![TripBuddy Report Details](./docs/images/report-details.png)
+
 ## Frontend Structure
 - `src/App.jsx`: app routes only
 - `src/pages/HomePage.jsx`: planner page composition

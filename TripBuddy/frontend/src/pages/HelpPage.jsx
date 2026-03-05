@@ -8,13 +8,14 @@ export function HelpPage() {
         <Link to="/">Back to Planner</Link>
       </header>
       <section className="panel help">
-        <h2>Plan a Trip with in just 6 steps</h2>
+        <h2>Plan a Trip with few simple steps</h2>
         <ol>
           <li>Fill in travel days, budget, country, start date, and dietary restrictions.</li>
           <li>Click Start Planning to trigger all agents.</li>
           <li>Watch live steps update as each specialist completes work.</li>
           <li>Use chat to request edits like cheaper hotels, different activities, or food changes.</li>
           <li>Review the final report.</li>
+          <li>Click Reset to clear results and plan another trip.</li>
         </ol>
       </section>
     </div>

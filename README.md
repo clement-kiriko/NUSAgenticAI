@@ -105,3 +105,10 @@ npm run dev
 ## Documentation
 - Backend details: `TripBuddy/backend/README.md`
 - Frontend details: `TripBuddy/frontend/README.md`
+
+## UI Screenshots
+> Place image files in `TripBuddy/frontend/docs/images/` with the names below.
+
+![TripBuddy Planner](./TripBuddy/frontend/docs/images/planner.png)
+![TripBuddy Report Overview](./TripBuddy/frontend/docs/images/report-overview.png)
+![TripBuddy Report Details](./TripBuddy/frontend/docs/images/report-details.png)

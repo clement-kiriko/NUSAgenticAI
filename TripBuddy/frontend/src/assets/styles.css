@@ -215,6 +215,28 @@ button:disabled {
   font-weight: 700;
 }
 
+.report-text-block {
+  display: grid;
+  gap: 8px;
+}
+
+.report-text {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.report-text-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.report-bullet-text {
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
 .help ol {
   margin: 0;
   padding-left: 20px;
