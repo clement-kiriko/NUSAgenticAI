@@ -20,7 +20,7 @@ React frontend for TripBuddy travel planning.
 - Stale session recovery: auto-reset local state when backend returns unknown/expired session
 
 ## Screenshots
-> Place image files in `TripBuddy/frontend/docs/images/` with the names below.
+> Place image files in `TripBuddy/frontend/docs/images/`.
 
 ### Planner
 ![TripBuddy Planner](./docs/images/planner.png)

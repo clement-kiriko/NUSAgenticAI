@@ -135,7 +135,8 @@ export function usePlannerSession() {
       if (event.report) {
         setReport(event.report);
       }
-      setLoading(Boolean(event.running));
+      // Avoid start-click race: keep loading true if a run has just been initiated locally.
+      setLoading((prev) => prev || Boolean(event.running));
       if (snapshotEvents.length > 0) {
         setCurrentStatus(eventToStatus(snapshotEvents[snapshotEvents.length - 1]));
       } else {
@@ -146,6 +147,9 @@ export function usePlannerSession() {
 
     setEvents((prev) => [...prev, { type, payload: event }].slice(-300));
     setCurrentStatus(eventToStatus(event));
+    if (type === "run_started" || type === "round_started" || type === "step_started" || type === "auto_rerun") {
+      setLoading(true);
+    }
     if (type === "report_ready" || type === "completed" || type === "aborted") {
       setReport(event.final_report || event.report || null);
     }
@@ -314,6 +318,7 @@ export function usePlannerSession() {
       setMessages([{ role: "user", text: "Start planning my trip." }]);
       await connectSessionSocket(data.session_id);
       runViaSocket("start", "");
+      setLoading(true);
     } catch (e) {
       setError(e.message || "Unexpected error");
       setLoading(false);
@@ -331,6 +336,7 @@ export function usePlannerSession() {
     try {
       pendingRefineRef.current = true;
       runViaSocket("refine", text);
+      setLoading(true);
     } catch (e) {
       setError(e.message || "Refinement failed");
       setLoading(false);
