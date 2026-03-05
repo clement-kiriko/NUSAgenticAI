@@ -1,14 +1,11 @@
 import json
 
 from agents.orchestrator import (
-    call_tool,
     call_tool_by_capability,
     discover_tools,
     invoke_json,
-    llm_chat,
     log_agent,
     recent_conversation,
-    tool_schema,
 )
 from prompts import role_prompt
 
@@ -17,47 +14,6 @@ def _emit_progress(state: dict, message: str) -> None:
     emit = state.get("_emit_event")
     if callable(emit):
         emit({"type": "agent_update", "step": "food", "message": message})
-
-
-def _run_dining_tool_loop(state: dict, destination: str) -> list:
-    """Two-step tool-use loop routed via LLM Router + Tool Gateway."""
-    search_tool_name = "food_search_live"
-    schema = tool_schema("food_agent", search_tool_name)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a travel dining assistant. "
-                "Use the food_search_live tool to find real dining options for the given location."
-            ),
-        },
-        {"role": "user", "content": f"Find dining options near {destination}."},
-    ]
-
-    response = llm_chat(messages, task_type="tool_use", tools=[schema], tool_choice="auto")
-    message = response.choices[0].message
-
-    live_results: list = []
-    if message.tool_calls:
-        messages.append(message)
-        for tool_call in message.tool_calls:
-            args = json.loads(tool_call.function.arguments)
-            log_agent("food_agent", f"[Tool Call] food_search_live({args})")
-            results = call_tool(state, "food_agent", search_tool_name, **args)
-            live_results = results
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(results),
-                }
-            )
-
-        response = llm_chat(messages, task_type="tool_use")
-        summary = response.choices[0].message.content or ""
-        log_agent("food_agent", f"Dining tool loop complete: {str(summary)[:120]}")
-
-    return live_results
 
 
 def food_agent(state: dict) -> dict:
@@ -73,7 +29,7 @@ def food_agent(state: dict) -> dict:
     review_hits = call_tool_by_capability(state, "food_agent", "place_signals", f"Restaurants in {destination}", 5)
 
     _emit_progress(state, "Looking up live dining spots nearby.")
-    live_options = _run_dining_tool_loop(state, destination)
+    live_options = call_tool_by_capability(state, "food_agent", "food_live_search", destination, 1200, 6)
     log_agent("food_agent", f"food_search_live returned {len(live_options)} live venue(s)")
 
     optimization_hints = state.get("optimization_hints", {})
