@@ -7,13 +7,85 @@ trigger:
 - main
 
 pool:
-  name: Default  # or whatever your self-hosted pool is named
+  name: Default  # Your self-hosted agent pool
 
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-  
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+variables:
+  SONAR_HOST_URL: 'http://localhost:9000'
+  SONAR_TOKEN: 'sqp_8d80e214f6e676d998441fd56a0be130552bac12'
+  SONAR_PROJECT_KEY: 'tripbuddy'
+
+stages:
+- stage: CodeAnalysis
+  displayName: 'Code Quality Analysis'
+  jobs:
+  - job: SonarScan
+    displayName: 'SonarQube Scan'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+    
+    - script: |
+        sonar-scanner \
+          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
+          -Dsonar.sources=. \
+          -Dsonar.host.url=$(SONAR_HOST_URL) \
+          -Dsonar.token=$(SONAR_TOKEN)
+      displayName: 'Run SonarQube Analysis'
+
+# TODO: Uncomment when Dockerfile is ready
+# - stage: Build
+#   displayName: 'Build Docker Image'
+#   dependsOn: CodeAnalysis
+#   jobs:
+#   - job: DockerBuild
+#     displayName: 'Build Docker Image'
+#     steps:
+#     - checkout: self
+#       displayName: 'Checkout Code'
+#     
+#     - script: |
+#         echo "Docker build step - TODO: Add docker build command"
+#         # docker build -t your-image:$(Build.BuildId) .
+#       displayName: 'Build Docker Image (Placeholder)'
+
+# TODO: Uncomment when Docker image is ready
+# - stage: SecurityScan
+#   displayName: 'Security Scanning'
+#   dependsOn: Build
+#   jobs:
+#   - job: TrivyScan
+#     displayName: 'Trivy Vulnerability Scan'
+#     steps:
+#     - script: |
+#         echo "Trivy scan step - TODO: Add trivy scan command"
+#         # trivy image --severity HIGH,CRITICAL your-image:$(Build.BuildId)
+#       displayName: 'Run Trivy Security Scan (Placeholder)'
+
+# TODO: Uncomment when ready for manual approvals
+# - stage: Approval
+#   displayName: 'Manual Approval'
+#   dependsOn: SecurityScan
+#   jobs:
+#   - job: waitForValidation
+#     displayName: 'Wait for Manual Approval'
+#     pool: server
+#     timeoutInMinutes: 4320  # 3 days
+#     steps:
+#     - task: ManualValidation@0
+#       inputs:
+#         notifyUsers: 'your-email@example.com'
+#         instructions: 'Please review the build and security scan results before deploying.'
+#         onTimeout: 'reject'
+
+# TODO: Uncomment when ready to deploy
+# - stage: Deploy
+#   displayName: 'Deploy Application'
+#   dependsOn: Approval
+#   jobs:
+#   - job: DeployDocker
+#     displayName: 'Deploy Docker Container'
+#     steps:
+#     - script: |
+#         echo "Deployment step - TODO: Add docker deployment command"
+#         # docker run -d --name your-app -p 8080:8080 your-image:$(Build.BuildId)
+#       displayName: 'Deploy Docker Container (Placeholder)'
