@@ -82,12 +82,6 @@ poetry install
 poetry run python main.py
 ```
 
-Or with uv:
-```bash
-uv sync
-uv run python main.py
-```
-
 ## Web UI (React + FastAPI)
 Run backend API:
 
