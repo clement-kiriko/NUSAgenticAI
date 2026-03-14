@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: TripBuddy
+    orgId: 1
+    folder: TripBuddy
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
-from metrics import AGENT_LATENCY
+from metrics import AGENT_LATENCY, HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
 from planner import as_sse_event, build_initial_state, run_planner_stream
 
 load_dotenv(override=True)
@@ -25,6 +25,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def record_http_metrics(request, call_next):
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - started_at
+    route = request.scope.get("route")
+    path = getattr(route, "path", request.url.path)
+    status_code = str(response.status_code)
+    method = request.method
+    HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code=status_code).inc()
+    HTTP_REQUEST_DURATION.labels(method=method, path=path, status_code=status_code).observe(duration)
+    return response
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 SESSION_RUNTIME: Dict[str, Dict[str, Any]] = {}
