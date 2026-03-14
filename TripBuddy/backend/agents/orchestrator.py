@@ -6,11 +6,11 @@ from runtime import LLM_ROUTER, TOOL_GATEWAY
 from utils import debug
 
 
+
 def _emit_progress(state: dict, step: str, message: str) -> None:
     emit = state.get("_emit_event")
     if callable(emit):
         emit({"type": "agent_update", "step": step, "message": message})
-
 
 def invoke_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
     debug(f"System prompt preview: {system_prompt[:220]}", prefix="LLM")

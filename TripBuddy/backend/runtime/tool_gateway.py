@@ -1,5 +1,7 @@
+import time
 from typing import Any, Dict, List
 
+from metrics import AGENT_LATENCY, AGENT_TOOL_CALLS
 from runtime.tool_registry import ToolSpec, serialize_tool_catalog
 from utils import debug
 
@@ -36,6 +38,8 @@ class ToolGateway:
         if agent_name not in spec.allowed_agents:
             raise PermissionError(f"{agent_name} is not allowed to call {tool_name}")
 
+        AGENT_TOOL_CALLS.labels(agent_name=agent_name, tool_name=tool_name).inc()
+
         emit = state.get("_emit_event")
         tool_labels = {
             "FlightAPI": "flight options",
@@ -59,7 +63,9 @@ class ToolGateway:
                 }
             )
 
+        started_at = time.perf_counter()
         result = spec.handler(*args, **kwargs)
+        AGENT_LATENCY.labels(agent_name=f"tool:{tool_name}").observe(time.perf_counter() - started_at)
         debug(f"{agent_name} -> {tool_name} args={list(args)} kwargs={kwargs}", prefix="TOOL")
         debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
         state.setdefault("tool_calls", []).append(

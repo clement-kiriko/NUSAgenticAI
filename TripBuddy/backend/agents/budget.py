@@ -20,13 +20,22 @@ def budget_agent(state: dict) -> dict:
     log_agent("budget_agent", "Reconciling all agent estimates against user budget")
     _emit_progress(state, "Checking total trip cost against your budget.")
     req = state["user_requirements"]
-    total_budget = float(req["budget_sgd"])
-
+    total_budget = float(req.get("budget_sgd", 0) or 0)
     flight_cost = _get_cost(state.get("flight_plan", {}))
     food_cost = _get_cost(state.get("food_plan", {}))
     location_cost = _get_cost(state.get("locations_plan", {}))
     accom_cost = _get_cost(state.get("accomodations_plan", {}))
     projected_total = flight_cost + food_cost + location_cost + accom_cost
+
+    if total_budget <= 0:
+        days = int(req.get("days", 0) or 0)
+        average_per_day = 300
+        total_budget = float(days * average_per_day)
+        req["budget_sgd"] = total_budget
+        log_agent(
+            "budget_agent",
+            f"Budget missing or zero. Falling back to SGD {average_per_day} per day for {days} days.",
+        )
 
     plan = invoke_json(
         role_prompt("Budget Agent"),
@@ -64,6 +73,8 @@ def budget_agent(state: dict) -> dict:
             "budget_agent",
             f"Budget over by SGD {shortfall}. Generated optimization_hints for next round.",
         )
+    else:
+        _emit_progress(state, f"Projected total is within budget with SGD {max(0.0, total_budget - projected):.2f} buffer.")
 
     state["budget_plan"] = plan
     log_agent(

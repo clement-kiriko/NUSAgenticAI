@@ -1,6 +1,7 @@
 import asyncio
 import queue
 import threading
+import time
 import uuid
 from typing import Any, Dict
 
@@ -8,8 +9,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
+from metrics import AGENT_LATENCY
 from planner import as_sse_event, build_initial_state, run_planner_stream
 
 load_dotenv(override=True)
@@ -118,6 +121,11 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+def metrics() -> StreamingResponse:
+    return StreamingResponse(iter([generate_latest()]), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/api/session")
 def create_session(req: PlanRequest) -> Dict[str, str]:
     session_id = str(uuid.uuid4())
@@ -141,7 +149,9 @@ def plan_once(session_id: str, body: RefineRequest | None = None) -> JSONRespons
         raise HTTPException(status_code=404, detail="Unknown session_id")
 
     feedback = body.message if body else ""
+    run_started_at = time.perf_counter()
     events = list(run_planner_stream(state, feedback=feedback))
+    AGENT_LATENCY.labels(agent_name="planner_run").observe(time.perf_counter() - run_started_at)
     final = events[-1] if events else {}
     return JSONResponse({"events": events, "result": final})
 

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import openai
 
+from metrics import LLM_TOKENS_TOTAL
 from utils import debug
 
 
@@ -42,6 +43,23 @@ class LLMRouter:
             raise ValueError(f"Unsupported LLM_PROVIDER '{self.provider}'. Supported: openai")
         return openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+    @staticmethod
+    def _record_token_usage(model: str, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return
+
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        total_tokens = getattr(usage, "total_tokens", 0) or 0
+
+        if prompt_tokens:
+            LLM_TOKENS_TOTAL.labels(model=model, token_type="prompt").inc(prompt_tokens)
+        if completion_tokens:
+            LLM_TOKENS_TOTAL.labels(model=model, token_type="completion").inc(completion_tokens)
+        if total_tokens:
+            LLM_TOKENS_TOTAL.labels(model=model, token_type="total").inc(total_tokens)
+
     def chat(
         self,
         messages: List[Dict[str, Any]],
@@ -71,7 +89,9 @@ class LLMRouter:
                     f"LLM route -> provider={self.provider}, task_type={task_type}, model={model}",
                     prefix="LLM_ROUTER",
                 )
-                return client.chat.completions.create(**kwargs)
+                response = client.chat.completions.create(**kwargs)
+                self._record_token_usage(model, response)
+                return response
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 debug(f"Model call failed for {model}: {exc}", prefix="LLM_ROUTER")
