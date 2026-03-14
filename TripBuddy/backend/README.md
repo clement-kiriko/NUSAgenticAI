@@ -111,23 +111,22 @@ uvicorn api_server:app --host 0.0.0.0 --port 8000
 Production env template:
 - `.env.prod.example`
 
-Container build from the repo root:
+Backend build from the repo root:
 
 ```bash
-docker build -f TripBuddy/backend/Dockerfile -t tripbuddy-backend:latest .
+docker compose --env-file .env.prod -f docker-compose.prod.yml build backend
 ```
 
-Monitoring container builds from the repo root:
+Monitoring builds from the repo root:
 
 ```bash
-docker build -f TripBuddy/tools/prometheus/Dockerfile.prometheus -t tripbuddy-prometheus:latest .
-docker build -f TripBuddy/tools/prometheus/Dockerfile.grafana -t tripbuddy-grafana:latest .
+docker compose --env-file .env.prod -f docker-compose.prod.yml build prometheus grafana
 ```
 
 If you want backend plus monitoring together in production:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend prometheus grafana
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build backend prometheus grafana
 ```
 
 Default production endpoints:

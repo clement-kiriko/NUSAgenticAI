@@ -125,24 +125,22 @@ Set real values in:
 Example if you want production frontend on the same port as local Vite:
 
 ```env
+COMPOSE_PROJECT_NAME=tripbuddy
 FRONTEND_PORT=5173
 ```
 
-### Build all images
+### Build the full stack
 Run from the repo root:
 
 ```bash
-docker build -f TripBuddy/backend/Dockerfile -t tripbuddy-backend:latest .
-docker build -f TripBuddy/frontend/Dockerfile -t tripbuddy-frontend:latest .
-docker build -f TripBuddy/tools/prometheus/Dockerfile.prometheus -t tripbuddy-prometheus:latest .
-docker build -f TripBuddy/tools/prometheus/Dockerfile.grafana -t tripbuddy-grafana:latest .
+docker compose --env-file .env.prod -f docker-compose.prod.yml build
 ```
 
 ### Start the full production stack
 Run from the repo root:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
 ### Default production endpoints

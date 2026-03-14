@@ -1,6 +1,9 @@
 services:
   backend:
     image: ${BACKEND_IMAGE:-tripbuddy-backend:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/backend/Dockerfile
     env_file:
       - TripBuddy/backend/.env.prod
     ports:
@@ -9,6 +12,9 @@ services:
 
   frontend:
     image: ${FRONTEND_IMAGE:-tripbuddy-frontend:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/frontend/Dockerfile
     depends_on:
       - backend
     environment:
@@ -19,6 +25,9 @@ services:
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-tripbuddy-prometheus:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/tools/prometheus/Dockerfile.prometheus
     depends_on:
       - backend
     ports:
@@ -27,6 +36,9 @@ services:
 
   grafana:
     image: ${GRAFANA_IMAGE:-tripbuddy-grafana:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/tools/prometheus/Dockerfile.grafana
     depends_on:
       - prometheus
     environment:

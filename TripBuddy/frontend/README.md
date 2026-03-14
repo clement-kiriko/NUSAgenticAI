@@ -75,19 +75,20 @@ Production env template:
 If you want the Docker frontend to use the same port as local Vite, set this in the root `.env.prod`:
 
 ```env
+COMPOSE_PROJECT_NAME=tripbuddy
 FRONTEND_PORT=5173
 ```
 
-Container build from the repo root:
+Frontend build from the repo root:
 
 ```bash
-docker build -f TripBuddy/frontend/Dockerfile -t tripbuddy-frontend:latest .
+docker compose --env-file .env.prod -f docker-compose.prod.yml build frontend
 ```
 
 Run the frontend container in production as part of the full stack:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d frontend
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build frontend
 ```
 
 Default production URL:
