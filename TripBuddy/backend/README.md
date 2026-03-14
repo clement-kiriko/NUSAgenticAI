@@ -7,6 +7,8 @@
 - LangGraph
 - MCP (stdio JSON-RPC)
 - OpenAI API
+- Prometheus
+- Grafana
 
 ## Implemented Backend Agents
 - `Flight` agent (`FlightAPI`, `WeatherAPI`)
@@ -99,8 +101,136 @@ npm run dev
 
 Open `http://localhost:5173`.
 
+## Observability
+TripBuddy exposes Prometheus metrics from the backend and includes a provisioned Prometheus + Grafana stack.
+
+### Backend Metrics Endpoint
+Start the backend API:
+
+```bash
+poetry run uvicorn api_server:app --reload --port 8000
+```
+
+Metrics are exposed at:
+
+- `GET /metrics`
+
+Key metrics currently emitted:
+- `http_requests_total`
+- `http_request_duration_seconds`
+- `agent_tool_calls_total`
+- `agent_execution_seconds`
+- `llm_tokens_total`
+
+### Prometheus + Grafana
+The monitoring stack lives under:
+
+- `../tools/prometheus/docker-compose.yml`
+- `../tools/prometheus/prometheus.yml`
+- `../tools/prometheus/grafana/provisioning/...`
+- `../tools/prometheus/grafana/dashboards/tripbuddy-overview.json`
+
+Start it from the `TripBuddy/tools/prometheus` folder:
+
+```bash
+docker compose up -d
+```
+
+Services:
+- Prometheus UI: `http://localhost:9090`
+- Grafana UI: `http://localhost:3000`
+
+Grafana is provisioned automatically with:
+- a default `Prometheus` datasource
+- a prebuilt `TripBuddy Overview` dashboard
+
+To access Grafana, log in with the default credentials.
+
+### Useful Prometheus Queries
+In the top query bar, enter PromQL expressions and click `Execute`.
+
+Raw tool counter:
+
+```promql
+agent_tool_calls_total
+```
+
+Total tool calls across all tools:
+
+```promql
+sum(agent_tool_calls_total)
+```
+
+Per-tool counts:
+
+```promql
+sum by (tool_name) (agent_tool_calls_total)
+```
+
+Per-agent counts:
+
+```promql
+sum by (agent_name) (agent_tool_calls_total)
+```
+
+Agent latency histogram raw buckets:
+
+```promql
+agent_execution_seconds_bucket
+```
+
+Average latency by agent:
+
+```promql
+sum by (agent_name) (rate(agent_execution_seconds_sum[5m]))
+/
+sum by (agent_name) (rate(agent_execution_seconds_count[5m]))
+```
+
+P95 latency by agent:
+
+```promql
+histogram_quantile(0.95, sum by (agent_name, le) (rate(agent_execution_seconds_bucket[5m])))
+```
+
+HTTP request totals:
+
+```promql
+http_requests_total
+```
+
+Request rate by route:
+
+```promql
+sum by (path, method, status_code) (rate(http_requests_total[5m]))
+```
+
+HTTP P95 latency by route:
+
+```promql
+histogram_quantile(0.95, sum by (path, le) (rate(http_request_duration_seconds_bucket[5m])))
+```
+
+LLM token totals:
+
+```promql
+llm_tokens_total
+```
+
+Tokens by model/type:
+
+```promql
+sum by (model, token_type) (llm_tokens_total)
+```
+
+### Notes
+- Prometheus scrapes the backend every `10s`.
+- The dashboard is most useful after you trigger at least one planning flow.
+- Cumulative counters such as `agent_tool_calls_total` are better viewed as totals for bursty workflows than as instantaneous rates.
+
 ### API Endpoints
-- `GET /api/health`
+- `GET /api/health` (health check)
+- `GET /metrics` (monitoring metrics)
 - `POST /api/session` (create planning session from intake fields)
 - `GET /api/session/{session_id}/snapshot` (latest run state + event history for reconnect recovery)
 - `POST /api/session/{session_id}/stop` (request active planning run to stop)
@@ -412,7 +542,7 @@ Final Approved Report
 
 ## Next Phases (Not Implemented Yet)
 - Pipeline + cloud infra deployment
-- External monitoring stack (Kafka, Grafana, Prometheus, GitHub Actions, LangFuse, Promptfoo, LangChain traces)
+- Expanded monitoring and alerting (Kafka, GitHub Actions, LangFuse, Promptfoo, LangChain traces)
 - Production-grade MCP hardening (authn/authz, transport hardening, observability, multi-tenant policy)
 
 

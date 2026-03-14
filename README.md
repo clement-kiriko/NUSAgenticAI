@@ -89,13 +89,23 @@ cd TripBuddy/backend
 poetry install
 poetry run uvicorn api_server:app --reload --port 8000
 ```
-2. Start frontend:
+2. Start Prometheus and Grafana:
+```bash
+cd TripBuddy/tools/prometheus
+docker compose up -d
+```
+3. Start frontend:
 ```bash
 cd TripBuddy/frontend
 npm install
 npm run dev
 ```
-3. Open `http://localhost:5173`.
+4. Open:
+- Frontend: `http://localhost:5173`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
+To access Grafana, use default login credentials.
 
 ## Session And Streaming Notes
 - Planning runs continue on backend even if the frontend WebSocket disconnects mid-run.
