@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.prod
 .envrc
 .venv
 env/
@@ -156,6 +157,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Keep env templates in git, ignore local runtime variants
+TripBuddy/backend/.env.prod
 
 # Spyder project settings
 .spyderproject

@@ -63,6 +63,52 @@ npm run build
 npm run preview
 ```
 
+## Production
+The frontend now has:
+- `npm run start` for non-dev preview mode
+- `Dockerfile` for nginx-based production serving
+- `nginx.conf` with same-origin proxying for `/api`, `/ws`, and `/metrics`
+
+Production env template:
+- `.env.production.example`
+
+If you want the Docker frontend to use the same port as local Vite, set this in the root `.env.prod`:
+
+```env
+FRONTEND_PORT=5173
+```
+
+Container build from the repo root:
+
+```bash
+docker build -f TripBuddy/frontend/Dockerfile -t tripbuddy-frontend:latest .
+```
+
+Run the frontend container in production as part of the full stack:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d frontend
+```
+
+Default production URL:
+- Frontend: `http://localhost`
+
+If `FRONTEND_PORT=5173`, the production frontend URL is `http://localhost:5173`.
+
+Verify the frontend:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs frontend
+```
+
+Checks:
+- Open the frontend in the browser.
+- Submit a new trip request.
+- Confirm progress updates appear.
+- Confirm the final report renders.
+- Confirm refinement/chat still works over WebSocket.
+
 ## Environment
 Optional Vite env var:
 - `VITE_API_BASE` (default: `http://localhost:8000`)

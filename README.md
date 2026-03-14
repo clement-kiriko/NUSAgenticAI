@@ -107,6 +107,97 @@ npm run dev
 
 To access Grafana, use default login credentials.
 
+## Docker And Production
+Use the repo root for production Docker workflows.
+
+### Production env files
+Create these files first:
+
+```bash
+copy .env.prod.example .env.prod
+copy TripBuddy\backend\.env.prod.example TripBuddy\backend\.env.prod
+```
+
+Set real values in:
+- `TripBuddy/backend/.env.prod`
+- `.env.prod`
+
+Example if you want production frontend on the same port as local Vite:
+
+```env
+FRONTEND_PORT=5173
+```
+
+### Build all images
+Run from the repo root:
+
+```bash
+docker build -f TripBuddy/backend/Dockerfile -t tripbuddy-backend:latest .
+docker build -f TripBuddy/frontend/Dockerfile -t tripbuddy-frontend:latest .
+docker build -f TripBuddy/tools/prometheus/Dockerfile.prometheus -t tripbuddy-prometheus:latest .
+docker build -f TripBuddy/tools/prometheus/Dockerfile.grafana -t tripbuddy-grafana:latest .
+```
+
+### Start the full production stack
+Run from the repo root:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+```
+
+### Default production endpoints
+- Frontend: `http://localhost`
+- Backend API: `http://localhost:8000`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
+If you set `FRONTEND_PORT=5173` in `.env.prod`, the frontend URL becomes `http://localhost:5173`.
+
+### Production services
+- Frontend is served by nginx.
+- Frontend proxies `/api`, `/ws`, and `/metrics` to the backend.
+- Backend runs with production uvicorn settings.
+- Prometheus scrapes the backend metrics endpoint.
+- Grafana is preprovisioned with the Prometheus datasource and dashboard.
+
+### Verify the full stack
+Check container status:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+```
+
+Check service logs:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs backend
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs frontend
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs prometheus
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs grafana
+```
+
+Verify endpoints:
+- Frontend: `http://localhost`
+- Backend health: `http://localhost:8000/api/health`
+- Backend metrics: `http://localhost:8000/metrics`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
+Optional CLI checks:
+
+```bash
+curl http://localhost:8000/api/health
+curl http://localhost:8000/metrics
+curl http://localhost
+```
+
+Functional smoke test:
+- Open the frontend.
+- Create a planning session.
+- Wait for the itinerary/report to complete.
+- Confirm refine/chat still works.
+- Open Grafana and confirm dashboard data appears after at least one run.
+
 ## Session And Streaming Notes
 - Planning runs continue on backend even if the frontend WebSocket disconnects mid-run.
 - On reconnect, frontend requests a session snapshot and resumes live updates.

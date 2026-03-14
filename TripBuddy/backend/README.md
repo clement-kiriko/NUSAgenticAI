@@ -101,6 +101,61 @@ npm run dev
 
 Open `http://localhost:5173`.
 
+## Production Runtime
+Use the production container entrypoint instead of `--reload`:
+
+```bash
+uvicorn api_server:app --host 0.0.0.0 --port 8000
+```
+
+Production env template:
+- `.env.prod.example`
+
+Container build from the repo root:
+
+```bash
+docker build -f TripBuddy/backend/Dockerfile -t tripbuddy-backend:latest .
+```
+
+Monitoring container builds from the repo root:
+
+```bash
+docker build -f TripBuddy/tools/prometheus/Dockerfile.prometheus -t tripbuddy-prometheus:latest .
+docker build -f TripBuddy/tools/prometheus/Dockerfile.grafana -t tripbuddy-grafana:latest .
+```
+
+If you want backend plus monitoring together in production:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d backend prometheus grafana
+```
+
+Default production endpoints:
+- Backend API: `http://localhost:8000`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
+Verify backend and monitoring:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs backend
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs prometheus
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs grafana
+```
+
+Check backend endpoints:
+
+```bash
+curl http://localhost:8000/api/health
+curl http://localhost:8000/metrics
+```
+
+After at least one planner run, verify metrics in Prometheus/Grafana:
+- `http_requests_total`
+- `agent_tool_calls_total`
+- `llm_tokens_total`
+
 ## Observability
 TripBuddy exposes Prometheus metrics from the backend and includes a provisioned Prometheus + Grafana stack.
 

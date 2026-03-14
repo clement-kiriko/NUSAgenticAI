@@ -1,0 +1,12 @@
+FROM alpine:3.20 AS builder
+
+ARG PROMETHEUS_BACKEND_TARGET=backend:8000
+
+WORKDIR /work
+
+COPY TripBuddy/tools/prometheus/prometheus.prod.yml ./
+RUN sed "s|__PROMETHEUS_BACKEND_TARGET__|${PROMETHEUS_BACKEND_TARGET}|g" prometheus.prod.yml > prometheus.yml
+
+FROM prom/prometheus:v2.54.1
+
+COPY --from=builder /work/prometheus.yml /etc/prometheus/prometheus.yml

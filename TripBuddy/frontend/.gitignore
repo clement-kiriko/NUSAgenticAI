@@ -4,6 +4,7 @@ dist/
 
 # local environment config
 .env
+.env.production
 .env.local
 .env.*.local
 

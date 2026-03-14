@@ -1,0 +1,14 @@
+FROM alpine:3.20 AS builder
+
+ARG GRAFANA_PROMETHEUS_URL=http://prometheus:9090
+
+WORKDIR /work
+
+COPY TripBuddy/tools/prometheus/grafana/provisioning/datasources/prometheus.prod.yml ./prometheus.yml
+RUN sed "s|__GRAFANA_PROMETHEUS_URL__|${GRAFANA_PROMETHEUS_URL}|g" prometheus.yml > rendered-prometheus.yml
+
+FROM grafana/grafana:11.2.0
+
+COPY --from=builder /work/rendered-prometheus.yml /etc/grafana/provisioning/datasources/prometheus.yml
+COPY TripBuddy/tools/prometheus/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards
+COPY TripBuddy/tools/prometheus/grafana/dashboards /var/lib/grafana/dashboards
