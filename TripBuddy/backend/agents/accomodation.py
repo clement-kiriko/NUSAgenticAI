@@ -1,0 +1,71 @@
+import json
+
+from agents.orchestrator import (
+    call_tool_by_capability,
+    discover_tools,
+    invoke_json,
+    log_agent,
+    recent_conversation,
+)
+from prompts import role_prompt
+
+
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "accomodations", "message": message})
+
+
+def accomodations_agent(state: dict) -> dict:
+    log_agent("accomodations_agent", "Evaluating stay options against preferences")
+    req = state["user_requirements"]
+    destination = req["location_preference"]
+    days = req["days"]
+    _emit_progress(state, f"Comparing stay options and neighborhoods in {destination}.")
+    catalog = discover_tools("accomodations_agent")
+    log_agent("accomodations_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
+    options = call_tool_by_capability(state, "accomodations_agent", "accommodation_search", destination)
+    search_hits = call_tool_by_capability(
+        state, "accomodations_agent", "geo_search", f"Best areas to stay in {destination}", 5
+    )
+    transit_hint = call_tool_by_capability(state, "accomodations_agent", "route_estimate", "airport", destination)
+    review_hits = call_tool_by_capability(state, "accomodations_agent", "place_signals", f"Hotels in {destination}", 5)
+    optimization_hints = state.get("optimization_hints", {})
+    _emit_progress(state, "Selecting accommodation trade-offs for comfort vs budget.")
+
+    system = role_prompt("Accomodations Agent")
+    user = (
+        "Use AccomsAPI data and user accommodation preferences.\n"
+        "Return JSON with keys: selected_stay, area_notes, tradeoffs, estimated_total_sgd.\n"
+        f"Requirements: {json.dumps(req)}\n"
+        f"Feedback: {state.get('feedback', '')}\n"
+        f"Optimization hints: {json.dumps(optimization_hints)}\n"
+        f"Prior team messages: {recent_conversation(state)}\n"
+        f"AccomsAPI: {json.dumps(options)}\n"
+        f"places_search: {json.dumps(search_hits)}\n"
+        f"route_estimate: {json.dumps(transit_hint)}\n"
+        f"place_signals: {json.dumps(review_hits)}"
+    )
+    plan = invoke_json(system, user)
+    if not plan:
+        log_agent("accomodations_agent", "LLM output invalid JSON, using deterministic fallback")
+        if not options:
+            selected = {"name": "No live accommodation options found", "nightly_rate_sgd": 0}
+        elif optimization_hints.get("target_reduction_sgd", 0) > 0:
+            selected = options[0]
+        else:
+            selected = options[1] if len(options) > 1 else options[0]
+        plan = {
+            "selected_stay": selected,
+            "area_notes": "Choose well-connected area to control commute costs.",
+            "tradeoffs": "Selected option balances budget and access to attractions.",
+            "estimated_total_sgd": selected.get("nightly_rate_sgd", 0) * days,
+        }
+
+    state["accomodations_plan"] = plan
+    log_agent(
+        "accomodations_agent",
+        f"Estimated accommodation total SGD: {plan.get('estimated_total_sgd', 'N/A')}",
+    )
+    state.setdefault("conversation", []).append(("accomodations_agent", plan))
+    return state

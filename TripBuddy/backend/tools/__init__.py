@@ -1,4 +1,4 @@
-from .travel_apis import (
+from .geoapify_tools import (
     accomodation_api,
     food_api,
     maps_api,
@@ -7,11 +7,11 @@ from .travel_apis import (
     web_search_api,
 )
 
-from .flight_apis import(
+from .aviationstack_api import (
     flight_api,
 )
 
-from .weather_apis import(
+from .weatherstack_api import (
     weather_api,
 )
 

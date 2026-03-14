@@ -1,9 +1,17 @@
 # TripBuddy Multi-Agent Travel Advisor (LangGraph)
 
+## Tech Stack
+- Python
+- FastAPI
+- WebSocket + SSE streaming
+- LangGraph
+- MCP (stdio JSON-RPC)
+- OpenAI API
+
 ## Implemented Backend Agents
 - `Flight` agent (`FlightAPI`, `WeatherAPI`)
 - `Locations` agent (`TouristAttractionAPI`)
-- `Food` agent (`FoodAPI`)
+- `Food` agent (`food_catalog`, `food_search_live` in `tools/food_finder.py`)
 - `Accomodations` agent (`AccomsAPI`)
 - `Budget` agent (cost consolidation in SGD)
 - `Orchestrator/Consolidation` agent
@@ -22,10 +30,18 @@ Default model is GPT-5 via `OPENAI_MODEL` (default: `gpt-5`).
 3. Consolidated report is shown to user.
 4. If budget is exceeded, system auto-runs optimization rounds (max 3 total rounds) by swapping to cheaper options.
 5. User can provide feedback; the workflow stops at satisfaction or when max rounds are reached.
+6. Auto-rerun is triggered only when there is a concrete reason:
+   - budget not met, or
+   - critical output fields are missing (flight/locations/food/accommodations/budget/report core sections).
 
 ## Architecture Mapping To Rubric
 - Multiple agents with distinct personas:
   - Flight specialist, Locations specialist, Food specialist, Accomodations specialist, Budget analyst, and Orchestrator/Consolidation.
+- MCP-style platform layers:
+  - `LLM Router` centralizes all model calls and routes by task type (`reasoning`, `tool_use`, etc.) with model failover support.
+  - `Tool Registry` is the single catalog of tool metadata (capabilities, schemas, governance policy).
+  - `Tool Gateway` is the governed execution path for all tool calls (permission checks + audit logging).
+  - Agents discover tools dynamically from the registry and call by capability via the gateway.
 - Agent coordination:
   - `LangGraph` orchestrated round-robin flow per iteration:
     `orchestrator -> flight -> locations -> food -> accomodations -> budget -> consolidation -> feedback`.
@@ -34,19 +50,31 @@ Default model is GPT-5 via `OPENAI_MODEL` (default: `gpt-5`).
   - Shared `conversation` history in state.
   - Each agent appends its structured output and reads recent conversation context before producing next output.
 - Tool integration:
-  - Tools in `tools/travel_apis.py` are called by agents.
-  - Retrieval-enabled tools include:
-    - `TouristAttractionAPI` (Geoapify Places near destination when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
-    - `FoodAPI` (Geoapify Places food categories near destination, otherwise mock fallback)
-    - `AccomsAPI` (Geoapify Places accommodation categories near destination, otherwise mock fallback)
-    - `WebSearchAPI` (Geoapify search/geocode when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
-    - `MapsAPI` (Geoapify routing for proximity/travel-time context, otherwise mock fallback)
-    - `ReviewsAPI` (Geoapify place signals; fallback mock when unavailable)
+  - Tool execution is mediated by `runtime/tool_gateway.py` using catalog entries from `runtime/tool_registry.py`.
+  - Tool/API integrations include:
+    - `FlightAPI` from `tools/aviationstack_api.py` (AviationStack flight data when `AVIATIONSTACK_API_KEY` is set, otherwise mock fallback)
+    - `WeatherAPI` from `tools/weatherstack_api.py` (WeatherStack weather data when `WEATHERSTACK_API_KEY` is set, otherwise mock fallback)
+    - `TouristAttractionAPI` from `tools/geoapify_tools.py` (Geoapify Places near destination when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
+    - `food_catalog` from `tools/geoapify_tools.py` (planner-oriented food options)
+    - `food_search_live` (OpenStreetMap Nominatim + Overpass live lookup, with Geoapify fallback)
+    - `AccomsAPI` from `tools/geoapify_tools.py` (Geoapify Places accommodation categories near destination, otherwise mock fallback)
+    - `places_search` from `tools/geoapify_tools.py` (Geoapify search/geocode when `GEOAPIFY_API_KEY` is set, otherwise mock fallback)
+    - `route_estimate` from `tools/geoapify_tools.py` (Geoapify routing for proximity/travel-time context, otherwise mock fallback)
+    - `place_signals` from `tools/geoapify_tools.py` (Geoapify place signals; fallback mock when unavailable)
 - Tool access control:
-  - Centralized allowlist in `agents/orchestrator.py` (`TOOL_PERMISSIONS` + `call_tool`).
+  - Centralized governance in `runtime/tool_registry.py` (`allowed_agents`) enforced by `ToolGateway`.
   - Unauthorized tool calls raise `PermissionError`.
 - State management:
   - Shared typed state in `state.py` tracks user requirements, round number, tool call audit, specialist plans, conversation history, and final report.
+
+## Setup
+Create `.env` from `.env.example` and set:
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` (default: `gpt-5`)
+- `GEOAPIFY_API_KEY`
+- `AVIATIONSTACK_API_KEY`
+- `WEATHERSTACK_API_KEY`
+- `DEBUG` (`true`/`false`)
 
 ## Run
 ```bash
@@ -59,6 +87,99 @@ Or with uv:
 uv sync
 uv run python main.py
 ```
+
+## Web UI (React + FastAPI)
+Run backend API:
+
+```bash
+poetry run uvicorn api_server:app --reload --port 8000
+```
+
+Then run frontend in another terminal:
+
+```bash
+cd ..\\frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+### API Endpoints
+- `GET /api/health`
+- `POST /api/session` (create planning session from intake fields)
+- `GET /api/session/{session_id}/snapshot` (latest run state + event history for reconnect recovery)
+- `POST /api/session/{session_id}/stop` (request active planning run to stop)
+- `WS /ws/session/{session_id}` (primary real-time planning + chat refinement channel)
+- `POST /api/session/{session_id}/plan/stream` (SSE progress stream for planning/refinement)
+- `POST /api/session/{session_id}/plan` (non-stream fallback)
+
+WebSocket behavior notes:
+- Planner runs continue server-side even if the WebSocket client disconnects mid-run.
+- On reconnect, server sends a `snapshot` event with accumulated run events and latest report state.
+- Planner events include round metadata (`round`, `max_rounds`) and rerun context (`reason`, `missing_fields`, `within_budget`) for frontend UX.
+
+## MCP Server (stdio)
+Run the MCP server adapter:
+
+```bash
+poetry run python mcp_server.py
+```
+
+Note: it will look idle after starting. This is expected because it waits for JSON-RPC input on `stdin`.
+
+It exposes:
+- `initialize`
+- `tools/list` (optional `agent_name` filter)
+- `tools/call` (requires `agent_name` for governance + `name` + `arguments`)
+
+Example JSON-RPC messages (one JSON object per line):
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"agent_name":"food_agent"}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"food_search_live","arguments":{"location":"Tokyo","radius_m":800,"limit":3}}}
+```
+
+### Quick Test (PowerShell)
+Run each command from the `backend` folder:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | poetry run python mcp_server.py
+```
+
+Expected: a JSON response containing `protocolVersion`, `serverInfo`, and `capabilities`.
+
+Example input/output:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | poetry run python mcp_server.py
+```
+
+```json
+{"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "tripbuddy-mcp", "version": "0.1.0"}, "capabilities": {"tools": {"listChanged": false}}}}
+```
+
+```powershell
+'{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"agent_name":"food_agent"}}' | poetry run python mcp_server.py
+```
+
+Expected: a JSON response containing a `tools` array (for example `food_catalog`, `places_search`, `place_signals`, `food_search_live`).
+
+```powershell
+'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"agent_name":"food_agent","name":"food_search_live","arguments":{"location":"Tokyo","limit":2}}}' | poetry run python mcp_server.py
+```
+
+Expected: a JSON response with `isError: false` and tool output in `content`.
+
+### Interactive Test
+1. Start server:
+```bash
+poetry run python mcp_server.py
+```
+2. Paste one JSON request line and press Enter (for example `initialize` request above).
+3. Server returns one JSON response line.
+4. Stop with `Ctrl+C`.
 
 ## Sample Demo Input/Output
 Sample intake input:
@@ -297,6 +418,10 @@ Final Approved Report
 
 ## Next Phases (Not Implemented Yet)
 - Pipeline + cloud infra deployment
-- Frontend UI
 - External monitoring stack (Kafka, Grafana, Prometheus, GitHub Actions, LangFuse, Promptfoo, LangChain traces)
-- MCP server integration for internal tools/data access
+- Production-grade MCP hardening (authn/authz, transport hardening, observability, multi-tenant policy)
+
+
+
+
+

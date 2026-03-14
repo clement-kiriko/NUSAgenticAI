@@ -1,18 +1,39 @@
 import json
 
-from agents.orchestrator import call_tool, invoke_json, log_agent, recent_conversation
+from agents.orchestrator import (
+    call_tool_by_capability,
+    discover_tools,
+    invoke_json,
+    log_agent,
+    recent_conversation,
+)
 from prompts import role_prompt
+
+
+def _emit_progress(state: dict, message: str) -> None:
+    emit = state.get("_emit_event")
+    if callable(emit):
+        emit({"type": "agent_update", "step": "locations", "message": message})
 
 
 def locations_agent(state: dict) -> dict:
     log_agent("locations_agent", "Building attraction shortlist from location preference")
     req = state["user_requirements"]
     destination = req["location_preference"]
-    attractions = call_tool(state, "locations_agent", "TouristAttractionAPI", destination)
-    search_hits = call_tool(state, "locations_agent", "WebSearchAPI", f"Top attractions in {destination}", 5)
-    transit_hint = call_tool(state, "locations_agent", "MapsAPI", "city_center", destination)
-    review_hits = call_tool(state, "locations_agent", "ReviewsAPI", f"Tourist attractions {destination}", 5)
+    _emit_progress(state, f"Finding high-value attractions in {destination}.")
+    catalog = discover_tools("locations_agent")
+    log_agent("locations_agent", f"Discovered tools: {[tool['name'] for tool in catalog]}")
+    _emit_progress(state, "Checking map access and place signals for activity planning.")
+    attractions = call_tool_by_capability(state, "locations_agent", "attraction_search", destination)
+    search_hits = call_tool_by_capability(
+        state, "locations_agent", "geo_search", f"Top attractions in {destination}", 5
+    )
+    transit_hint = call_tool_by_capability(state, "locations_agent", "route_estimate", "city_center", destination)
+    review_hits = call_tool_by_capability(
+        state, "locations_agent", "place_signals", f"Tourist attractions {destination}", 5
+    )
     optimization_hints = state.get("optimization_hints", {})
+    _emit_progress(state, "Drafting a balanced daily activity flow.")
 
     system = role_prompt("Locations Agent")
     user = (
@@ -23,9 +44,9 @@ def locations_agent(state: dict) -> dict:
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
         f"TouristAttractionAPI: {json.dumps(attractions)}\n"
-        f"WebSearchAPI: {json.dumps(search_hits)}\n"
-        f"MapsAPI: {json.dumps(transit_hint)}\n"
-        f"ReviewsAPI: {json.dumps(review_hits)}"
+        f"places_search: {json.dumps(search_hits)}\n"
+        f"route_estimate: {json.dumps(transit_hint)}\n"
+        f"place_signals: {json.dumps(review_hits)}"
     )
     plan = invoke_json(system, user)
     if not plan:
