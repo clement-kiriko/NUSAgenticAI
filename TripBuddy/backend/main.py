@@ -1,5 +1,3 @@
-import time
-
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
 
@@ -12,9 +10,9 @@ from agents import (
     locations_agent,
     orchestrator_agent,
 )
+from monitoring import timed_agent_call
 from nodes import feedback_node, feedback_router, intake_node
 from state import TripState
-from metrics import AGENT_LATENCY
 
 load_dotenv(override=True)
 
@@ -55,9 +53,7 @@ def main():
     graph = build_graph()
     print(graph.get_graph().draw_ascii())
     print("Set DEBUG=true for verbose LLM/tool trace logs.")
-    start_time = time.time()
-    result = graph.invoke({})
-    AGENT_LATENCY.labels(agent_name="cli_run").observe(time.time() - start_time)
+    result = timed_agent_call("cli_run", graph.invoke, {})
     print("\nFinal Approved Report")
     print(result.get("final_report", result.get("report")))
 

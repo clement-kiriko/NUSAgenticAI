@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import openai
 
-from metrics import LLM_TOKENS_TOTAL
+from monitoring import record_llm_token_usage
 from utils import debug
 
 
@@ -45,20 +45,7 @@ class LLMRouter:
 
     @staticmethod
     def _record_token_usage(model: str, response: Any) -> None:
-        usage = getattr(response, "usage", None)
-        if not usage:
-            return
-
-        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-        total_tokens = getattr(usage, "total_tokens", 0) or 0
-
-        if prompt_tokens:
-            LLM_TOKENS_TOTAL.labels(model=model, token_type="prompt").inc(prompt_tokens)
-        if completion_tokens:
-            LLM_TOKENS_TOTAL.labels(model=model, token_type="completion").inc(completion_tokens)
-        if total_tokens:
-            LLM_TOKENS_TOTAL.labels(model=model, token_type="total").inc(total_tokens)
+        record_llm_token_usage(model=model, usage=getattr(response, "usage", None))
 
     def chat(
         self,

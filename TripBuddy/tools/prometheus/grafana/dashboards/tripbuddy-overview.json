@@ -77,13 +77,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(increase(agent_tool_calls_total[$__range]))",
+          "expr": "sum(agent_tool_calls_total)",
           "legendFormat": "__auto",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
-      "title": "Tool Calls",
+      "title": "Tool Calls Total",
       "type": "stat"
     },
     {
@@ -260,14 +260,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(agent_tool_calls_total[$__rate_interval]))",
+          "expr": "sum by (tool_name) (agent_tool_calls_total)",
           "legendFormat": "__auto",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
-      "title": "Tool Call Rate",
-      "type": "stat"
+      "title": "Tool Calls by Tool",
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -436,13 +436,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (tool_name) (increase(agent_tool_calls_total[$__range]))",
+          "expr": "sum by (tool_name) (agent_tool_calls_total)",
           "legendFormat": "{{tool_name}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
-      "title": "Tool Calls by Tool",
+      "title": "Tool Calls by Tool Over Time",
       "type": "timeseries"
     },
     {

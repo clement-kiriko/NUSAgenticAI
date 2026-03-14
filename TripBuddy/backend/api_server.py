@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
-from metrics import AGENT_LATENCY, HTTP_REQUESTS_TOTAL, HTTP_REQUEST_DURATION
+from monitoring import record_http_metrics, timed_agent_call
 from planner import as_sse_event, build_initial_state, run_planner_stream
 
 load_dotenv(override=True)
@@ -28,17 +28,8 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def record_http_metrics(request, call_next):
-    started_at = time.perf_counter()
-    response = await call_next(request)
-    duration = time.perf_counter() - started_at
-    route = request.scope.get("route")
-    path = getattr(route, "path", request.url.path)
-    status_code = str(response.status_code)
-    method = request.method
-    HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code=status_code).inc()
-    HTTP_REQUEST_DURATION.labels(method=method, path=path, status_code=status_code).observe(duration)
-    return response
+async def prometheus_http_metrics(request, call_next):
+    return await record_http_metrics(request, call_next)
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 SESSION_RUNTIME: Dict[str, Dict[str, Any]] = {}
@@ -163,9 +154,7 @@ def plan_once(session_id: str, body: RefineRequest | None = None) -> JSONRespons
         raise HTTPException(status_code=404, detail="Unknown session_id")
 
     feedback = body.message if body else ""
-    run_started_at = time.perf_counter()
-    events = list(run_planner_stream(state, feedback=feedback))
-    AGENT_LATENCY.labels(agent_name="planner_run").observe(time.perf_counter() - run_started_at)
+    events = timed_agent_call("planner_run", list, run_planner_stream(state, feedback=feedback))
     final = events[-1] if events else {}
     return JSONResponse({"events": events, "result": final})
 

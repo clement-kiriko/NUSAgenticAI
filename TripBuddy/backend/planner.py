@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, Generator
 
@@ -12,7 +11,7 @@ from agents import (
     locations_agent,
     orchestrator_agent,
 )
-from metrics import AGENT_LATENCY
+from monitoring import timed_agent_call
 
 
 def _compute_end_date(start_date: str, days: int) -> str:
@@ -208,9 +207,7 @@ def run_planner_stream(
                 "round": next_round,
                 "message": step_start_msg.get(name, f"Running {name}"),
             }
-            step_started_at = time.perf_counter()
-            state = fn(state)
-            AGENT_LATENCY.labels(agent_name=name).observe(time.perf_counter() - step_started_at)
+            state = timed_agent_call(name, fn, state)
             if abort_requested():
                 aborted = True
             yield {
