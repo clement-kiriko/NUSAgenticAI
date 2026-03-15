@@ -31,10 +31,7 @@ stages:
     - script: |
         cd TripBuddy/backend
         python3 -m venv .ci-venv
-        .ci-venv/bin/pip install --upgrade pip
-        .ci-venv/bin/pip install poetry prometheus-client
-        .ci-venv/bin/poetry config virtualenvs.create false
-        .ci-venv/bin/poetry install --no-root
+        .ci-venv/bin/pip install --upgrade pip pytest
         .ci-venv/bin/pytest tests/test_backend.py -v --tb=short
       displayName: 'Run Backend Unit Tests'
 
