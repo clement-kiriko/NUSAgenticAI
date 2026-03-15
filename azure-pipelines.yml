@@ -36,9 +36,24 @@ stages:
           -Dsonar.token=$(SONAR_TOKEN)
       displayName: 'Run SonarQube Analysis'
 
+- stage: ApprovalAfterSonar
+  displayName: 'Approval - Code Quality Review'
+  dependsOn: CodeAnalysis
+  jobs:
+  - job: waitForValidation
+    displayName: 'Wait for Code Quality Approval'
+    pool: server
+    timeoutInMinutes: 4320  # 3 days
+    steps:
+    - task: ManualValidation@0
+      inputs:
+        notifyUsers: 'clement_tay@outlook.com'  # Replace with your email
+        instructions: 'Please review the SonarQube scan results at $(SONAR_HOST_URL)/dashboard?id=$(SONAR_PROJECT_KEY) before proceeding to build.'
+        onTimeout: 'reject'
+
 - stage: Build
   displayName: 'Build Docker Images'
-  dependsOn: CodeAnalysis
+  dependsOn: ApprovalAfterSonar
   jobs:
   - job: DockerBuild
     displayName: 'Build All Docker Images'
@@ -165,57 +180,79 @@ stages:
         grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/grafana_results.txt || echo "0"
       displayName: 'Security Scan Summary'
 
-# TODO: Uncomment when ready for manual approvals
-# - stage: Approval
-#   displayName: 'Manual Approval'
-#   dependsOn: SecurityScan
-#   jobs:
-#   - job: waitForValidation
-#     displayName: 'Wait for Manual Approval'
-#     pool: server
-#     timeoutInMinutes: 4320  # 3 days
-#     steps:
-#     - task: ManualValidation@0
-#       inputs:
-#         notifyUsers: 'your-email@example.com'
-#         instructions: 'Please review the build and security scan results before deploying.'
-#         onTimeout: 'reject'
+- stage: ApprovalBeforeDeploy
+  displayName: 'Approval - Deploy to Production'
+  dependsOn: SecurityScan
+  jobs:
+  - job: waitForValidation
+    displayName: 'Wait for Deployment Approval'
+    pool: server
+    timeoutInMinutes: 4320  # 3 days
+    steps:
+    - task: ManualValidation@0
+      inputs:
+        notifyUsers: 'clement_tay@outlook.com'  # Replace with your email
+        instructions: 'Please review the build and security scan results at $(TRIVY_RESULTS_DIR) before deploying to production.'
+        onTimeout: 'reject'
 
-# TODO: Uncomment when ready to deploy
-# - stage: Deploy
-#   displayName: 'Deploy Application'
-#   dependsOn: Approval
-#   jobs:
-#   - job: DeployDocker
-#     displayName: 'Deploy Docker Stack'
-#     steps:
-#     - checkout: self
-#       displayName: 'Checkout Code'
-#     
-#     - script: |
-#         # Stop existing stack if running
-#         docker compose --env-file .env.prod -f docker-compose.prod.yml down || true
-#       displayName: 'Stop Existing Stack'
-#     
-#     - script: |
-#         # Export image names with build ID
-#         export BACKEND_IMAGE=$(BACKEND_IMAGE)
-#         export FRONTEND_IMAGE=$(FRONTEND_IMAGE)
-#         export PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE)
-#         export GRAFANA_IMAGE=$(GRAFANA_IMAGE)
-#         
-#         # Deploy the stack
-#         docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
-#       displayName: 'Deploy Docker Stack'
-#     
-#     - script: |
-#         echo "Deployment completed successfully!"
-#         echo "Backend: http://localhost:${BACKEND_PORT:-8000}"
-#         echo "Frontend: http://localhost:${FRONTEND_PORT:-80}"
-#         echo "Prometheus: http://localhost:${PROMETHEUS_PORT:-9090}"
-#         echo "Grafana: http://localhost:${GRAFANA_PORT:-3000}"
-#         
-#         echo ""
-#         echo "Running containers:"
-#         docker compose --env-file .env.prod -f docker-compose.prod.yml ps
-#       displayName: 'Deployment Summary'
+- stage: Deploy
+  displayName: 'Deploy Application'
+  dependsOn: ApprovalBeforeDeploy
+  jobs:
+  - job: DeployDocker
+    displayName: 'Deploy Docker Stack'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+    
+    - script: |
+        # Ensure .env.prod files exist
+        if [ ! -f .env.prod ]; then
+          echo "Creating .env.prod from example..."
+          cp .env.prod.example .env.prod
+        fi
+        
+        if [ ! -f TripBuddy/backend/.env.prod ]; then
+          echo "Creating TripBuddy/backend/.env.prod from example..."
+          cp TripBuddy/backend/.env.prod.example TripBuddy/backend/.env.prod
+        fi
+      displayName: 'Prepare Environment Files'
+    
+    - script: |
+        # Stop existing stack if running
+        docker compose --env-file .env.prod -f docker-compose.prod.yml down || true
+      displayName: 'Stop Existing Stack'
+    
+    - script: |
+        # Export image names with build ID
+        export BACKEND_IMAGE=$(BACKEND_IMAGE)
+        export FRONTEND_IMAGE=$(FRONTEND_IMAGE)
+        export PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE)
+        export GRAFANA_IMAGE=$(GRAFANA_IMAGE)
+        
+        # Deploy the stack
+        docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+      displayName: 'Deploy Docker Stack'
+    
+    - script: |
+        # Wait for services to start
+        echo "Waiting for services to start..."
+        sleep 10
+        
+        echo "=========================================="
+        echo "Deployment Summary"
+        echo "=========================================="
+        echo "Build ID: $(Build.BuildId)"
+        echo ""
+        echo "Service URLs:"
+        echo "  Backend: http://localhost:${BACKEND_PORT:-8000}"
+        echo "  Frontend: http://localhost:${FRONTEND_PORT:-80}"
+        echo "  Prometheus: http://localhost:${PROMETHEUS_PORT:-9090}"
+        echo "  Grafana: http://localhost:${GRAFANA_PORT:-3000}"
+        echo ""
+        echo "Running containers:"
+        docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+        echo ""
+        echo "Container health status:"
+        docker ps --filter "name=tripbuddy" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+      displayName: 'Deployment Summary'
