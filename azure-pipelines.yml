@@ -15,6 +15,8 @@ variables:
   FRONTEND_IMAGE: 'tripbuddy-frontend:$(Build.BuildId)'
   PROMETHEUS_IMAGE: 'tripbuddy-prometheus:$(Build.BuildId)'
   GRAFANA_IMAGE: 'tripbuddy-grafana:$(Build.BuildId)'
+  # Trivy results directory
+  TRIVY_RESULTS_DIR: '/home/azureuser/trivy-scanner/results/$(Build.BuildId)'
 
 stages:
 - stage: CodeAnalysis
@@ -81,28 +83,87 @@ stages:
         docker images | grep tripbuddy
       displayName: 'List Built Images'
 
-# TODO: Uncomment when ready for security scanning
-# - stage: SecurityScan
-#   displayName: 'Security Scanning'
-#   dependsOn: Build
-#   jobs:
-#   - job: TrivyScan
-#     displayName: 'Trivy Vulnerability Scan'
-#     steps:
-#     - script: |
-#         echo "Scanning Backend Image..."
-#         trivy image --severity HIGH,CRITICAL $(BACKEND_IMAGE)
-#         
-#         echo "Scanning Frontend Image..."
-#         trivy image --severity HIGH,CRITICAL $(FRONTEND_IMAGE)
-#         
-#         echo "Scanning Prometheus Image..."
-#         trivy image --severity HIGH,CRITICAL $(PROMETHEUS_IMAGE)
-#         
-#         echo "Scanning Grafana Image..."
-#         trivy image --severity HIGH,CRITICAL $(GRAFANA_IMAGE)
-#       displayName: 'Run Trivy Security Scan on All Images'
-#       continueOnError: true  # Set to false to fail pipeline on vulnerabilities
+- stage: SecurityScan
+  displayName: 'Security Scanning'
+  dependsOn: Build
+  jobs:
+  - job: TrivyScan
+    displayName: 'Trivy Vulnerability Scan'
+    steps:
+    - script: |
+        # Create results directory for this build
+        mkdir -p $(TRIVY_RESULTS_DIR)
+        echo "Trivy results will be saved to: $(TRIVY_RESULTS_DIR)"
+      displayName: 'Create Trivy Results Directory'
+    
+    - script: |
+        echo "Scanning Backend Image..."
+        trivy image --severity HIGH,CRITICAL \
+          --format table \
+          --output $(TRIVY_RESULTS_DIR)/backend_results.txt \
+          $(BACKEND_IMAGE)
+        
+        echo "Backend scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/backend_results.txt"
+        cat $(TRIVY_RESULTS_DIR)/backend_results.txt
+      displayName: 'Scan Backend Image'
+      continueOnError: true
+    
+    - script: |
+        echo "Scanning Frontend Image..."
+        trivy image --severity HIGH,CRITICAL \
+          --format table \
+          --output $(TRIVY_RESULTS_DIR)/frontend_results.txt \
+          $(FRONTEND_IMAGE)
+        
+        echo "Frontend scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/frontend_results.txt"
+        cat $(TRIVY_RESULTS_DIR)/frontend_results.txt
+      displayName: 'Scan Frontend Image'
+      continueOnError: true
+    
+    - script: |
+        echo "Scanning Prometheus Image..."
+        trivy image --severity HIGH,CRITICAL \
+          --format table \
+          --output $(TRIVY_RESULTS_DIR)/prometheus_results.txt \
+          $(PROMETHEUS_IMAGE)
+        
+        echo "Prometheus scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/prometheus_results.txt"
+        cat $(TRIVY_RESULTS_DIR)/prometheus_results.txt
+      displayName: 'Scan Prometheus Image'
+      continueOnError: true
+    
+    - script: |
+        echo "Scanning Grafana Image..."
+        trivy image --severity HIGH,CRITICAL \
+          --format table \
+          --output $(TRIVY_RESULTS_DIR)/grafana_results.txt \
+          $(GRAFANA_IMAGE)
+        
+        echo "Grafana scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/grafana_results.txt"
+        cat $(TRIVY_RESULTS_DIR)/grafana_results.txt
+      displayName: 'Scan Grafana Image'
+      continueOnError: true
+    
+    - script: |
+        echo "=========================================="
+        echo "Security Scan Summary"
+        echo "=========================================="
+        echo "Build ID: $(Build.BuildId)"
+        echo "Results Location: $(TRIVY_RESULTS_DIR)"
+        echo ""
+        echo "Scan Results Files:"
+        ls -lh $(TRIVY_RESULTS_DIR)/
+        echo ""
+        echo "Total vulnerabilities found:"
+        echo "Backend:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/backend_results.txt || echo "0"
+        echo "Frontend:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/frontend_results.txt || echo "0"
+        echo "Prometheus:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/prometheus_results.txt || echo "0"
+        echo "Grafana:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/grafana_results.txt || echo "0"
+      displayName: 'Security Scan Summary'
 
 # TODO: Uncomment when ready for manual approvals
 # - stage: Approval
