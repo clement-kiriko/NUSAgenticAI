@@ -201,6 +201,60 @@ Functional smoke test:
 - On reconnect, frontend requests a session snapshot and resumes live updates.
 - If backend was restarted and session IDs are no longer valid, frontend now auto-clears stale local session state and prompts a fresh run.
 
+## Testing
+
+### Running the tests
+
+Tests live in `TripBuddy/backend/tests/`. They are pure unit tests — no LLM calls or external API calls are made (network-touching dependencies are mocked).
+
+**Prerequisites:** install backend dependencies and `prometheus-client`:
+```bash
+cd TripBuddy/backend
+poetry install
+pip install prometheus-client   # if not already present via poetry
+```
+
+**Run all backend tests:**
+```bash
+cd TripBuddy/backend
+pytest tests/test_backend.py -v
+```
+
+**Run a specific test class:**
+```bash
+pytest tests/test_backend.py::TestBuildInitialState -v
+```
+
+**Run along with the existing food-agent integration test:**
+```bash
+pytest tests/ -v
+```
+
+> Note: `tests/test_food_agent.py` makes real LLM calls and requires `OPENAI_API_KEY` set in `.env`.
+
+### Test files
+
+| File | Description |
+|---|---|
+| `tests/test_backend.py` | Unit tests for pure backend helpers (no LLM/API calls) |
+| `tests/test_food_agent.py` | Integration test for the food agent end-to-end (requires OpenAI key) |
+
+### Test coverage (`tests/test_backend.py`)
+
+| Test Class | Module | What is covered |
+|---|---|---|
+| `TestHasValue` | `planner.py` | None, empty/whitespace strings, empty containers, zero, valid values |
+| `TestMissingCriticalFields` | `planner.py` | Complete state passes; each critical field missing individually; empty state; multiple missing simultaneously |
+| `TestShouldAutoRerun` | `planner.py` | Over-budget triggers re-run; max rounds prevents re-run; missing fields trigger re-run even when within budget |
+| `TestBuildInitialState` | `planner.py` | Type coercion for days/budget; end-date arithmetic; dietary restriction defaults; initial field values |
+| `TestReportToMarkdown` | `planner.py` | All sections rendered; missing sections omitted; empty report returns just header |
+| `TestGetCost` | `agents/budget.py` | Valid int/float/string, non-numeric string, None, and missing key all handled gracefully |
+| `TestBudgetAgentFallback` | `agents/budget.py` | Deterministic fallback keys present; within/over budget paths; zero-budget default of SGD 300/day (LLM mocked) |
+| `TestFeedbackRouter` | `nodes.py` | `auto_rerun` flag; satisfied; max rounds; priority ordering |
+| `TestComputeEndDate` | `nodes.py` | 1-day trip; 3-day and 7-day trips; month and year boundary roll-overs |
+| `TestTripDataTool` | `tools/trip_data_tool.py` | Country/city keyword match; no-match fallback; budget keyword filter |
+| `TestToolRegistry` | `runtime/tool_registry.py` | Registry contains all expected tools; per-agent capability visibility; alias entries hidden from catalog |
+
 ## Documentation
 - Backend details: `TripBuddy/backend/README.md`
 - Frontend details: `TripBuddy/frontend/README.md`

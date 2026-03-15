@@ -22,8 +22,22 @@ stages:
 - stage: CodeAnalysis
   displayName: 'Code Quality Analysis'
   jobs:
+  - job: RunTests
+    displayName: 'Run Pytest Unit Tests'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: |
+        cd TripBuddy/backend
+        pip install poetry prometheus-client
+        poetry install --no-root
+        poetry run pytest tests/test_backend.py -v --tb=short
+      displayName: 'Run Backend Unit Tests'
+
   - job: SonarScan
     displayName: 'SonarQube Scan'
+    dependsOn: RunTests
     steps:
     - checkout: self
       displayName: 'Checkout Code'
