@@ -29,10 +29,12 @@ stages:
       displayName: 'Checkout Code'
 
     - script: |
+        python3 -m venv /tmp/tripbuddy-ci-venv
+        /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
+        /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
         cd TripBuddy/backend
-        python3 -m venv .ci-venv
-        .ci-venv/bin/pip install --upgrade pip pytest
-        .ci-venv/bin/pytest tests/test_backend.py -v --tb=short
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short
       displayName: 'Run Backend Unit Tests'
 
   - job: SonarScan
