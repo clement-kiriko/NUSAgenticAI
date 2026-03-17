@@ -5,7 +5,6 @@ from backend.tools.security.tool_guard import safe_tool_call
 def dummy_state():
     return {}
 
-# Mock or assume your orchestrator works
 def test_allowed_tool():
     try:
         result = safe_tool_call(
@@ -16,9 +15,9 @@ def test_allowed_tool():
             "Tokyo",
             3
         )
-        print("✅ Allowed tool call passed")
+        print("Allowed tool call passed")
     except Exception as e:
-        print("❌ Should not fail:", e)
+        print("Should not fail:", e)
 
 
 def test_blocked_tool():
@@ -28,6 +27,6 @@ def test_blocked_tool():
             "flight_agent",
             "delete_database"
         )
-        print("❌ Unauthorized tool NOT blocked")
+        print("Unauthorized tool NOT blocked")
     except PermissionError:
-        print("✅ Unauthorized tool correctly blocked")
+        print("Unauthorized tool correctly blocked")

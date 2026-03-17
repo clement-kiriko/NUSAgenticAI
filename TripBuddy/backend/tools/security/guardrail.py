@@ -1,5 +1,6 @@
 INJECTION_PATTERNS = [
     "ignore previous instructions",
+    "ignore all instructions",
     "reveal system prompt",
     "show hidden prompt",
     "call tool",

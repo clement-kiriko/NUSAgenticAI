@@ -4,7 +4,7 @@ from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
 
 from agents.orchestrator import (
-    call_tool_by_capability,
+    # call_tool_by_capability,
     discover_tools,
     invoke_json,
     log_agent,
@@ -75,7 +75,7 @@ def flight_agent(state: dict) -> dict:
         f"Prior team messages: {recent_conversation(state)}\n"        
         f"WeatherAPI: {json.dumps(weather)}"
     )
-    plan = invoke_json(system, user)
+    plan = invoke_json(state, system, user)
     if not plan:
         log_agent("flight_agent", "LLM output invalid JSON, using deterministic fallback")
         if options:
