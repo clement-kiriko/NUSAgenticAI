@@ -26,6 +26,44 @@ export function PlannerChat({
   onReset,
   hasStarted,
 }) {
+
+  const blockedPatterns = [
+    /ignore previous instructions/i,
+    /ignore history/i,
+    /disregard (all )?instructions/i,
+    /system prompt/i,
+    /reveal hidden/i,
+    /developer mode/i,
+    /ignore all .*instructions/i,
+    /ignore .*instructions/i,
+    /ignore the instructions/i
+  ];
+
+  function validatePrompt(prompt) {
+    for (const pattern of blockedPatterns) {
+      if (pattern.test(prompt)) {
+        return { valid: false, reason: "Prompt injection attempt detected." };
+      }
+    }
+
+    if (prompt.length > 2000) {
+      return { valid: false, reason: "Prompt too long." };
+    }
+
+    return { valid: true };
+  }
+
+  const handleRefine = () => {
+    const result = validatePrompt(chatInput);
+
+    if (!result.valid) {
+      alert(result.reason); // you can replace with UI error
+      return;
+    }
+
+    onRefine();
+  };
+
   return (
     <section className="panel chat-panel">
       <h2>Planner Chat</h2>
@@ -55,10 +93,10 @@ export function PlannerChat({
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") onRefine();
+            if (e.key === "Enter") handleRefine();
           }}
         />
-        <button disabled={loading || !sessionId || !socketReady} onClick={onRefine}>
+        <button disabled={loading || !sessionId || !socketReady} onClick={handleRefine}>
           Send
         </button>
       </div>
