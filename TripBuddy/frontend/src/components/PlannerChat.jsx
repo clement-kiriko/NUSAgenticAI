@@ -28,22 +28,34 @@ export function PlannerChat({
 }) {
 
   const blockedPatterns = [
-    /ignore previous instructions/i,
-    /ignore history/i,
-    /disregard (all )?instructions/i,
-    /system prompt/i,
-    /reveal hidden/i,
-    /developer mode/i,
-    /ignore all .*instructions/i,
-    /ignore .*instructions/i,
-    /ignore the instructions/i
+    /(ignore|disregard|forget|bypass).*(instruction|instructions|rules|guidelines|history|histories)/i, //Override / ignore instructions
+    /(you are now|act as|pretend to be|roleplay as)/i, //Role / identity hijacking
+    /(system prompt|hidden prompt|internal instructions|developer message)/i, //System prompt extraction
+    /(reveal|show|leak|expose).*(prompt|policy|secret|key|password|hidden)/i, //Data exfiltration attempts
+    /(jailbreak|developer mode|no restrictions|unfiltered|disable safety)/i, //Safety bypass language
+    /(start over|reset instructions|clear rules|forget everything)/i, //Instruction reset patterns
+    /(ign[o0]re|byp[a@]ss|rul[e3]s|instruct[i1]ons)/i, //Obfuscation-lite
   ];
 
+  const normalizeText = (text) => {
+    return text
+      .normalize("NFKC") // Unicode normalization (prevents obfuscation)
+      .toLowerCase()
+      .trim();
+  };
+
   function validatePrompt(prompt) {
-    for (const pattern of blockedPatterns) {
-      if (pattern.test(prompt)) {
-        return { valid: false, reason: "Prompt injection attempt detected." };
-      }
+    const normalized = normalizeText(prompt);
+
+    const isBlocked = blockedPatterns.some((pattern) =>
+      pattern.test(normalized)
+    );
+
+    if (isBlocked) {
+      return {
+        valid: false,
+        reason: "Prompt injection attempt detected."
+      };
     }
 
     if (prompt.length > 2000) {
@@ -51,7 +63,7 @@ export function PlannerChat({
     }
 
     return { valid: true };
-  }
+  };
 
   const handleRefine = () => {
     const result = validatePrompt(chatInput);
