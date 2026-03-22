@@ -1,4 +1,5 @@
 import { ProgressSteps } from "./ProgressSteps";
+import { useState } from "react";
 
 export function PlannerChatPlaceholder() {
   return (
@@ -27,6 +28,7 @@ export function PlannerChat({
   hasStarted,
 }) {
 
+  const [error, setError] = useState("");
   const blockedPatterns = [
     /(ignore|disregard|forget|bypass).*(instruction|instructions|rules|guidelines|history|histories)/i, //Override / ignore instructions
     /(you are now|act as|pretend to be|roleplay as)/i, //Role / identity hijacking
@@ -68,8 +70,10 @@ export function PlannerChat({
   const handleRefine = () => {
     const result = validatePrompt(chatInput);
 
+    setError("");
+
     if (!result.valid) {
-      alert(result.reason); // you can replace with UI error
+      setError(result.reason);
       return;
     }
 
@@ -108,10 +112,12 @@ export function PlannerChat({
             if (e.key === "Enter") handleRefine();
           }}
         />
+
         <button disabled={loading || !sessionId || !socketReady} onClick={handleRefine}>
           Send
         </button>
       </div>
+      {error && <p className="error">{error}</p>}
       <div className="chat-footer">
         <button className="danger-btn" disabled={!hasStarted && !loading} onClick={onReset}>
           Reset
