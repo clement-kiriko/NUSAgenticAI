@@ -17,6 +17,8 @@ variables:
   GRAFANA_IMAGE: 'tripbuddy-grafana:$(Build.BuildId)'
   # Trivy results directory
   TRIVY_RESULTS_DIR: '/home/azureuser/trivy-scanner/results/$(Build.BuildId)'
+  # Centralized environment file path on agent
+  AGENT_ENV_FILE: '/home/azureuser/app_variables/.env'
 
 stages:
 - stage: CodeAnalysis
@@ -78,17 +80,22 @@ stages:
       displayName: 'Checkout Code'
     
     - script: |
-        # Check if .env.prod files exist, if not copy from examples
-        if [ ! -f .env.prod ]; then
-          echo "Creating .env.prod from example..."
-          cp .env.prod.example .env.prod
+        # Verify agent environment file exists
+        if [ ! -f $(AGENT_ENV_FILE) ]; then
+          echo "ERROR: Environment file not found at $(AGENT_ENV_FILE)"
+          exit 1
         fi
         
-        if [ ! -f TripBuddy/backend/.env.prod ]; then
-          echo "Creating TripBuddy/backend/.env.prod from example..."
-          cp TripBuddy/backend/.env.prod.example TripBuddy/backend/.env.prod
-        fi
-      displayName: 'Prepare Environment Files'
+        echo "Using environment file from: $(AGENT_ENV_FILE)"
+        
+        # Copy the centralized .env file to workspace
+        cp $(AGENT_ENV_FILE) .env.prod
+        
+        # Also copy to backend directory for backend-specific env vars
+        cp $(AGENT_ENV_FILE) TripBuddy/backend/.env.prod
+        
+        echo "Environment files prepared successfully"
+      displayName: 'Prepare Environment Files from Agent'
     
     - script: |
         # Export image names with build ID
@@ -222,17 +229,22 @@ stages:
       displayName: 'Checkout Code'
     
     - script: |
-        # Ensure .env.prod files exist
-        if [ ! -f .env.prod ]; then
-          echo "Creating .env.prod from example..."
-          cp .env.prod.example .env.prod
+        # Verify agent environment file exists
+        if [ ! -f $(AGENT_ENV_FILE) ]; then
+          echo "ERROR: Environment file not found at $(AGENT_ENV_FILE)"
+          exit 1
         fi
         
-        if [ ! -f TripBuddy/backend/.env.prod ]; then
-          echo "Creating TripBuddy/backend/.env.prod from example..."
-          cp TripBuddy/backend/.env.prod.example TripBuddy/backend/.env.prod
-        fi
-      displayName: 'Prepare Environment Files'
+        echo "Using environment file from: $(AGENT_ENV_FILE)"
+        
+        # Copy the centralized .env file to workspace
+        cp $(AGENT_ENV_FILE) .env.prod
+        
+        # Also copy to backend directory
+        cp $(AGENT_ENV_FILE) TripBuddy/backend/.env.prod
+        
+        echo "Environment files prepared successfully"
+      displayName: 'Prepare Environment Files from Agent'
     
     - script: |
         # Stop existing stack if running
@@ -254,6 +266,11 @@ stages:
         # Wait for services to start
         echo "Waiting for services to start..."
         sleep 10
+        
+        # Load environment variables to display ports
+        set -a
+        source .env.prod
+        set +a
         
         echo "=========================================="
         echo "Deployment Summary"
