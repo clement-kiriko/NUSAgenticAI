@@ -77,19 +77,23 @@ body {
   font-weight: 600;
 }
 
-.form-panel label.field-error input {
+.form-panel label.field-error input,
+.form-panel label.field-error select {
   border-color: #c74d4d;
   background: #fff7f7;
 }
 
-input {
+input,
+select {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
   font: inherit;
+  background: #fff;
 }
 
-input[aria-invalid="true"] {
+input[aria-invalid="true"],
+select[aria-invalid="true"] {
   outline: none;
   box-shadow: 0 0 0 3px #f3caca;
 }

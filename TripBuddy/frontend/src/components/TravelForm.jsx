@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getTodayLocalIso } from "../utils/travelForm";
+import { DIETARY_OPTIONS, getTodayLocalIso } from "../utils/travelForm";
 
 const ALL_FIELDS = ["days", "budget_sgd", "country", "start_date", "dietary_restrictions"];
 
@@ -84,11 +84,17 @@ export function TravelForm({ form, updateFormField, validationErrors, loading, e
       </label>
       <label>
         Dietary Restrictions
-        <input
+        <select
           value={form.dietary_restrictions}
           onChange={(e) => updateFormField("dietary_restrictions", e.target.value)}
           onBlur={() => markTouched("dietary_restrictions")}
-        />
+        >
+          {DIETARY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </label>
       <div className="form-actions">
         {error && <p className="error">{error}</p>}

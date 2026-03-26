@@ -1,3 +1,12 @@
+export const DIETARY_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "vegetarian", label: "Vegetarian" },
+  { value: "vegan", label: "Vegan" },
+  { value: "halal", label: "Halal" },
+  { value: "kosher", label: "Kosher" },
+  { value: "gluten-free", label: "Gluten-Free" },
+];
+
 function isBlank(value) {
   return String(value ?? "").trim() === "";
 }
