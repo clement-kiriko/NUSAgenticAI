@@ -46,6 +46,7 @@ export function usePlannerSession() {
   const reconnectTimerRef = useRef(null);
   const suppressReconnectRef = useRef(false);
   const pendingRefineRef = useRef(false);
+  const runStatsRef = useRef({ rounds: 0, hadAutoRerun: false });
 
   useEffect(() => {
     sessionStorage.setItem(HOME_STATE_KEY, JSON.stringify({ form, sessionId, events, messages, report }));
@@ -131,6 +132,19 @@ export function usePlannerSession() {
     const type = event.type;
     if (type === "snapshot") {
       const snapshotEvents = Array.isArray(event.events) ? event.events : [];
+      let latestRunIndex = -1;
+      snapshotEvents.forEach((item, index) => {
+        if (item.type === "run_started") latestRunIndex = index;
+      });
+      const activeRunEvents = latestRunIndex >= 0 ? snapshotEvents.slice(latestRunIndex) : [];
+      const runRounds = activeRunEvents.reduce((max, item) => {
+        const value = Number(item.round || 0);
+        return value > max ? value : max;
+      }, 0);
+      runStatsRef.current = {
+        rounds: runRounds,
+        hadAutoRerun: activeRunEvents.some((item) => item.type === "auto_rerun"),
+      };
       setEvents(snapshotEvents.map((e) => ({ type: e.type, payload: e })));
       if (event.report) {
         setReport(event.report);
@@ -147,6 +161,21 @@ export function usePlannerSession() {
 
     setEvents((prev) => [...prev, { type, payload: event }].slice(-300));
     setCurrentStatus(eventToStatus(event));
+    if (type === "run_started") {
+      runStatsRef.current = { rounds: 0, hadAutoRerun: false };
+    }
+    if (type === "round_started") {
+      runStatsRef.current = {
+        ...runStatsRef.current,
+        rounds: Math.max(runStatsRef.current.rounds, Number(event.round || 0)),
+      };
+    }
+    if (type === "auto_rerun") {
+      runStatsRef.current = {
+        ...runStatsRef.current,
+        hadAutoRerun: true,
+      };
+    }
     if (type === "run_started" || type === "round_started" || type === "step_started" || type === "auto_rerun") {
       setLoading(true);
     }
@@ -156,11 +185,14 @@ export function usePlannerSession() {
     if (type === "completed" || type === "aborted") {
       setLoading(false);
       if (type === "completed") {
-        const passes = Number(event.round || 1);
-        const passLabel = passes > 1 ? "passes" : "pass";
+        const totalPasses = Math.max(Number(event.round || 1), 1);
+        const passLabel = totalPasses > 1 ? "passes" : "pass";
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: `Finalized after ${passes} ${passLabel}${passes > 1 ? " for better budget fit." : "."}` },
+          {
+            role: "assistant",
+            text: `Finalized after ${totalPasses} total ${passLabel}${runStatsRef.current.hadAutoRerun ? " Current run needed extra optimization for better budget fit." : "."}`,
+          },
         ]);
       }
       if (pendingRefineRef.current) {
