@@ -7,7 +7,8 @@ import { usePlannerSession } from "../hooks/usePlannerSession";
 export function HomePage() {
   const {
     form,
-    setForm,
+    updateFormField,
+    validationErrors,
     loading,
     error,
     hasStarted,
@@ -36,7 +37,14 @@ export function HomePage() {
       </header>
 
       <main className="layout">
-        <TravelForm form={form} setForm={setForm} loading={loading} error={error} onStart={createSessionAndRun} />
+        <TravelForm
+          form={form}
+          updateFormField={updateFormField}
+          validationErrors={validationErrors}
+          loading={loading}
+          error={error}
+          onStart={createSessionAndRun}
+        />
 
         {!hasStarted ? (
           <PlannerChatPlaceholder />

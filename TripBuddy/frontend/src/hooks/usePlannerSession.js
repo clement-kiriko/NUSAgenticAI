@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPlannerSession, fetchSessionSnapshot, stopPlannerSession } from "../services/plannerApi";
 import { createPlannerSocket, sendPlannerSocketAction } from "../services/plannerSocket";
 import { STEP_ORDER, eventToStatus, toTitle } from "../utils/planner";
+import { buildTravelRequest, normalizeTravelForm, validateTravelForm } from "../utils/travelForm";
 
 const HOME_STATE_KEY = "tripbuddy_home_state_v1";
 
@@ -17,14 +18,7 @@ function loadSavedState() {
 export function usePlannerSession() {
   const savedState = loadSavedState();
   const [form, setForm] = useState(
-    () =>
-      savedState?.form || {
-        days: 4,
-        budget_sgd: 3000,
-        country: "",
-        start_date: "",
-        dietary_restrictions: "none",
-      },
+    () => normalizeTravelForm(savedState?.form),
   );
   const [sessionId, setSessionId] = useState(() => savedState?.sessionId || "");
   const [loading, setLoading] = useState(false);
@@ -41,6 +35,7 @@ export function usePlannerSession() {
     return eventToStatus(last);
   });
   const hasStarted = Boolean(sessionId);
+  const validationErrors = useMemo(() => validateTravelForm(form), [form]);
   const wsRef = useRef(null);
   const wsConnectPromiseRef = useRef(null);
   const reconnectTimerRef = useRef(null);
@@ -127,6 +122,13 @@ export function usePlannerSession() {
     });
     return lines.slice(-12);
   }, [events]);
+
+  function updateFormField(field, value) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (error) {
+      setError("");
+    }
+  }
 
   function onSocketEvent(event) {
     const type = event.type;
@@ -325,6 +327,13 @@ export function usePlannerSession() {
   }
 
   async function createSessionAndRun() {
+    const nextErrors = validateTravelForm(form);
+    if (Object.keys(nextErrors).length > 0) {
+      setError("Please correct the highlighted form fields.");
+      setLoading(false);
+      return;
+    }
+
     setError("");
     setLoading(true);
     setEvents([]);
@@ -345,7 +354,9 @@ export function usePlannerSession() {
       }, 50);
     }
     try {
-      const data = await createPlannerSession(form);
+      const request = buildTravelRequest(form);
+      const data = await createPlannerSession(request);
+      setForm(normalizeTravelForm(request));
       setSessionId(data.session_id);
       setMessages([{ role: "user", text: "Start planning my trip." }]);
       await connectSessionSocket(data.session_id);
@@ -420,6 +431,8 @@ export function usePlannerSession() {
   return {
     form,
     setForm,
+    updateFormField,
+    validationErrors,
     loading,
     error,
     hasStarted,
