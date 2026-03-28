@@ -21,97 +21,97 @@ variables:
   AGENT_ENV_FILE: '/home/azureuser/app_variables/.env'
 
 stages:
-# - stage: UnitTests
-#   displayName: 'Unit Tests'
-#   jobs:
-#   - job: RunUnitTests
-#     displayName: 'Run Pytest Unit Tests'
-#     steps:
-#     - checkout: self
-#       displayName: 'Checkout Code'
-#
-#     - script: |
-#         python3 -m venv /tmp/tripbuddy-ci-venv
-#         /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
-#         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
-#         /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
-#         cd TripBuddy/backend
-#         /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short \
-#           --junit-xml=../../test-results/unit-tests.xml
-#       displayName: 'Run Backend Unit Tests'
-#
-#     - task: PublishTestResults@2
-#       displayName: 'Publish Unit Test Results'
-#       condition: always()
-#       inputs:
-#         testResultsFormat: 'JUnit'
-#         testResultsFiles: 'test-results/unit-tests.xml'
-#         testRunTitle: 'Unit Tests'
-#
-# - stage: AISecurityTests
-#   displayName: 'AI Security Tests'
-#   dependsOn: UnitTests
-#   jobs:
-#   - job: RunAISecurityTests
-#     displayName: 'Run AI Security Test Suite'
-#     steps:
-#     - checkout: self
-#       displayName: 'Checkout Code'
-#
-#     - script: |
-#         python3 -m venv /tmp/tripbuddy-ci-venv
-#         /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
-#         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
-#         /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
-#         cd TripBuddy/backend
-#         /tmp/tripbuddy-ci-venv/bin/pytest tests/test_ai_security.py -v --tb=short \
-#           --junit-xml=../../test-results/ai-security-tests.xml
-#       displayName: 'Run AI Security Tests'
-#
-#     - task: PublishTestResults@2
-#       displayName: 'Publish AI Security Test Results'
-#       condition: always()
-#       inputs:
-#         testResultsFormat: 'JUnit'
-#         testResultsFiles: 'test-results/ai-security-tests.xml'
-#         testRunTitle: 'AI Security Tests'
-#
-# - stage: CodeAnalysis
-#   displayName: 'Code Quality Analysis'
-#   dependsOn: AISecurityTests
-#   jobs:
-#   - job: SonarScan
-#     displayName: 'SonarQube Scan'
-#     steps:
-#     - checkout: self
-#       displayName: 'Checkout Code'
-#
-#     - script: |
-#         sonar-scanner \
-#           -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
-#           -Dsonar.sources=. \
-#           -Dsonar.host.url=$(SONAR_HOST_URL) \
-#           -Dsonar.token=$(SONAR_TOKEN)
-#       displayName: 'Run SonarQube Analysis'
-#
-# - stage: ApprovalAfterSonar
-#   displayName: 'Approval - Code Quality Review'
-#   dependsOn: CodeAnalysis
-#   jobs:
-#   - job: waitForValidation
-#     displayName: 'Wait for Code Quality Approval'
-#     pool: server
-#     timeoutInMinutes: 4320  # 3 days
-#     steps:
-#     - task: ManualValidation@0
-#       inputs:
-#         notifyUsers: 'clement_tay@outlook.com'
-#         instructions: 'Please review the SonarQube scan results at $(SONAR_HOST_URL)/dashboard?id=$(SONAR_PROJECT_KEY) before proceeding to build.'
-#         onTimeout: 'reject'
+- stage: UnitTests
+  displayName: 'Unit Tests'
+  jobs:
+  - job: RunUnitTests
+    displayName: 'Run Pytest Unit Tests'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: |
+        python3 -m venv /tmp/tripbuddy-ci-venv
+        /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
+        /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
+        cd TripBuddy/backend
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short \
+          --junit-xml=../../test-results/unit-tests.xml
+      displayName: 'Run Backend Unit Tests'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish Unit Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'test-results/unit-tests.xml'
+        testRunTitle: 'Unit Tests'
+
+- stage: AISecurityTests
+  displayName: 'AI Security Tests'
+  dependsOn: UnitTests
+  jobs:
+  - job: RunAISecurityTests
+    displayName: 'Run AI Security Test Suite'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: |
+        python3 -m venv /tmp/tripbuddy-ci-venv
+        /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
+        /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
+        cd TripBuddy/backend
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_ai_security.py -v --tb=short \
+          --junit-xml=../../test-results/ai-security-tests.xml
+      displayName: 'Run AI Security Tests'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish AI Security Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'test-results/ai-security-tests.xml'
+        testRunTitle: 'AI Security Tests'
+
+- stage: CodeAnalysis
+  displayName: 'Code Quality Analysis'
+  dependsOn: AISecurityTests
+  jobs:
+  - job: SonarScan
+    displayName: 'SonarQube Scan'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: |
+        sonar-scanner \
+          -Dsonar.projectKey=$(SONAR_PROJECT_KEY) \
+          -Dsonar.sources=. \
+          -Dsonar.host.url=$(SONAR_HOST_URL) \
+          -Dsonar.token=$(SONAR_TOKEN)
+      displayName: 'Run SonarQube Analysis'
+
+- stage: ApprovalAfterSonar
+  displayName: 'Approval - Code Quality Review'
+  dependsOn: CodeAnalysis
+  jobs:
+  - job: waitForValidation
+    displayName: 'Wait for Code Quality Approval'
+    pool: server
+    timeoutInMinutes: 4320  # 3 days
+    steps:
+    - task: ManualValidation@0
+      inputs:
+        notifyUsers: 'clement_tay@outlook.com'
+        instructions: 'Please review the SonarQube scan results at $(SONAR_HOST_URL)/dashboard?id=$(SONAR_PROJECT_KEY) before proceeding to build.'
+        onTimeout: 'reject'
 
 - stage: Build
   displayName: 'Build Docker Images'
-  # dependsOn: ApprovalAfterSonar  # re-enable when full pipeline is restored
+  dependsOn: ApprovalAfterSonar
   jobs:
   - job: DockerBuild
     displayName: 'Build All Docker Images'
@@ -161,55 +161,71 @@ stages:
         docker images | grep tripbuddy
       displayName: 'List Built Images'
 
-# - stage: SecurityScan
-#   displayName: 'Security Scanning'
-#   dependsOn: Build
-#   jobs:
-#   - job: TrivyScan
-#     displayName: 'Trivy Vulnerability Scan'
-#     steps:
-#     - script: |
-#         mkdir -p $(TRIVY_RESULTS_DIR)
-#       displayName: 'Create Trivy Results Directory'
-#
-#     - script: |
-#         trivy image --severity HIGH,CRITICAL --format table \
-#           --output $(TRIVY_RESULTS_DIR)/backend_results.txt $(BACKEND_IMAGE)
-#         cat $(TRIVY_RESULTS_DIR)/backend_results.txt
-#       displayName: 'Scan Backend Image'
-#       continueOnError: true
-#
-#     - script: |
-#         trivy image --severity HIGH,CRITICAL --format table \
-#           --output $(TRIVY_RESULTS_DIR)/frontend_results.txt $(FRONTEND_IMAGE)
-#         cat $(TRIVY_RESULTS_DIR)/frontend_results.txt
-#       displayName: 'Scan Frontend Image'
-#       continueOnError: true
-#
-#     - script: |
-#         ls -lh $(TRIVY_RESULTS_DIR)/
-#         grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/backend_results.txt || echo "0"
-#         grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/frontend_results.txt || echo "0"
-#       displayName: 'Security Scan Summary'
-#
-# - stage: ApprovalBeforeDeploy
-#   displayName: 'Approval - Deploy to Production'
-#   dependsOn: SecurityScan
-#   jobs:
-#   - job: waitForValidation
-#     displayName: 'Wait for Deployment Approval'
-#     pool: server
-#     timeoutInMinutes: 4320
-#     steps:
-#     - task: ManualValidation@0
-#       inputs:
-#         notifyUsers: 'clement_tay@outlook.com'
-#         instructions: 'Please review the build and security scan results before deploying.'
-#         onTimeout: 'reject'
+- stage: SecurityScan
+  displayName: 'Security Scanning'
+  dependsOn: Build
+  jobs:
+  - job: TrivyScan
+    displayName: 'Trivy Vulnerability Scan'
+    steps:
+    - script: |
+        mkdir -p $(TRIVY_RESULTS_DIR)
+        echo "Trivy results will be saved to: $(TRIVY_RESULTS_DIR)"
+      displayName: 'Create Trivy Results Directory'
+
+    - script: |
+        echo "Scanning Backend Image..."
+        trivy image --severity HIGH,CRITICAL --format table \
+          --output $(TRIVY_RESULTS_DIR)/backend_results.txt \
+          $(BACKEND_IMAGE)
+        cat $(TRIVY_RESULTS_DIR)/backend_results.txt
+      displayName: 'Scan Backend Image'
+      continueOnError: true
+
+    - script: |
+        echo "Scanning Frontend Image..."
+        trivy image --severity HIGH,CRITICAL --format table \
+          --output $(TRIVY_RESULTS_DIR)/frontend_results.txt \
+          $(FRONTEND_IMAGE)
+        cat $(TRIVY_RESULTS_DIR)/frontend_results.txt
+      displayName: 'Scan Frontend Image'
+      continueOnError: true
+
+    - script: |
+        echo "=========================================="
+        echo "Security Scan Summary"
+        echo "=========================================="
+        echo "Build ID: $(Build.BuildId)"
+        echo "Results Location: $(TRIVY_RESULTS_DIR)"
+        echo ""
+        echo "Scan Results Files:"
+        ls -lh $(TRIVY_RESULTS_DIR)/
+        echo ""
+        echo "Total vulnerabilities found:"
+        echo "Backend:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/backend_results.txt || echo "0"
+        echo "Frontend:"
+        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/frontend_results.txt || echo "0"
+      displayName: 'Security Scan Summary'
+
+- stage: ApprovalBeforeDeploy
+  displayName: 'Approval - Deploy to Production'
+  dependsOn: SecurityScan
+  jobs:
+  - job: waitForValidation
+    displayName: 'Wait for Deployment Approval'
+    pool: server
+    timeoutInMinutes: 4320  # 3 days
+    steps:
+    - task: ManualValidation@0
+      inputs:
+        notifyUsers: 'clement_tay@outlook.com'
+        instructions: 'Please review the build and security scan results at $(TRIVY_RESULTS_DIR) before deploying to production.'
+        onTimeout: 'reject'
 
 - stage: Deploy
   displayName: 'Deploy Application'
-  dependsOn: Build  # change to ApprovalBeforeDeploy when full pipeline is restored
+  dependsOn: ApprovalBeforeDeploy
   jobs:
   - job: DeployDocker
     displayName: 'Deploy Docker Stack'
