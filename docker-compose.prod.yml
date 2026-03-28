@@ -1,6 +1,9 @@
 services:
   backend:
     image: ${BACKEND_IMAGE:-tripbuddy-backend:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/backend/Dockerfile
     env_file:
       - TripBuddy/backend/.env.prod
     ports:
@@ -27,6 +30,9 @@ services:
 
   frontend:
     image: ${FRONTEND_IMAGE:-tripbuddy-frontend:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/frontend/Dockerfile
     environment:
       API_UPSTREAM: http://backend:8000
     ports:
@@ -52,6 +58,9 @@ services:
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-tripbuddy-prometheus:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/tools/prometheus/Dockerfile.prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     deploy:
@@ -61,6 +70,9 @@ services:
 
   grafana:
     image: ${GRAFANA_IMAGE:-tripbuddy-grafana:latest}
+    build:
+      context: .
+      dockerfile: TripBuddy/tools/prometheus/Dockerfile.grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
