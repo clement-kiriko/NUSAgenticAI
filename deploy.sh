@@ -81,7 +81,18 @@ wait_healthy_container() {
 deploy_backend_blue_green() {
     log "---------- Blue-green rolling update: backend ----------"
 
-    # If nothing is running yet (first deploy), just start normally.
+    # If backend_proxy is not running (first deploy or new service added),
+    # bring up the full stack normally before attempting blue-green logic.
+    local proxy_id
+    proxy_id=$(${COMPOSE_CMD} ps -q backend_proxy 2>/dev/null | head -1 || echo "")
+    if [ -z "$proxy_id" ]; then
+        log "backend_proxy not running — performing initial stack start."
+        ${COMPOSE_CMD} up -d backend backend_proxy
+        wait_healthy "backend"
+        return 0
+    fi
+
+    # If backend itself is not running, start it and return.
     local existing
     existing=$(${COMPOSE_CMD} ps -q backend 2>/dev/null | head -1 || echo "")
     if [ -z "$existing" ]; then
