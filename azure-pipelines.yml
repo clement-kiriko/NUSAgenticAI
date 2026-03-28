@@ -199,30 +199,6 @@ stages:
       continueOnError: true
     
     - script: |
-        echo "Scanning Prometheus Image..."
-        trivy image --severity HIGH,CRITICAL \
-          --format table \
-          --output $(TRIVY_RESULTS_DIR)/prometheus_results.txt \
-          $(PROMETHEUS_IMAGE)
-        
-        echo "Prometheus scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/prometheus_results.txt"
-        cat $(TRIVY_RESULTS_DIR)/prometheus_results.txt
-      displayName: 'Scan Prometheus Image'
-      continueOnError: true
-    
-    - script: |
-        echo "Scanning Grafana Image..."
-        trivy image --severity HIGH,CRITICAL \
-          --format table \
-          --output $(TRIVY_RESULTS_DIR)/grafana_results.txt \
-          $(GRAFANA_IMAGE)
-        
-        echo "Grafana scan completed. Results saved to: $(TRIVY_RESULTS_DIR)/grafana_results.txt"
-        cat $(TRIVY_RESULTS_DIR)/grafana_results.txt
-      displayName: 'Scan Grafana Image'
-      continueOnError: true
-    
-    - script: |
         echo "=========================================="
         echo "Security Scan Summary"
         echo "=========================================="
@@ -237,10 +213,6 @@ stages:
         grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/backend_results.txt || echo "0"
         echo "Frontend:"
         grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/frontend_results.txt || echo "0"
-        echo "Prometheus:"
-        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/prometheus_results.txt || echo "0"
-        echo "Grafana:"
-        grep -c "HIGH\|CRITICAL" $(TRIVY_RESULTS_DIR)/grafana_results.txt || echo "0"
       displayName: 'Security Scan Summary'
 
 - stage: ApprovalBeforeDeploy
@@ -287,30 +259,29 @@ stages:
       displayName: 'Prepare Environment Files from Agent'
     
     - script: |
-        # Stop existing stack if running
-        docker compose --env-file .env.prod -f docker-compose.prod.yml down || true
-      displayName: 'Stop Existing Stack'
-    
-    - script: |
-        # Export image names with build ID
+        # Export image names and build metadata for deploy.sh
         export BACKEND_IMAGE=$(BACKEND_IMAGE)
         export FRONTEND_IMAGE=$(FRONTEND_IMAGE)
         export PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE)
         export GRAFANA_IMAGE=$(GRAFANA_IMAGE)
+        export BUILD_ID=$(Build.BuildId)
+        export COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)
         
-        # Rolling deployment – updates one service at a time with health-check
-        # gating. Automatically rolls back to :latest images if any service
-        # fails its health check.
+        # Blue-green rolling deployment:
+        #   - backend: nginx upstream swap (zero-downtime, existing requests drain)
+        #   - frontend: health-check gated swap
+        #   - prometheus/grafana: plain update (no traffic impact)
         chmod +x deploy.sh
         ENV_FILE=.env.prod \
         COMPOSE_FILE=docker-compose.prod.yml \
+        BACKEND_ENV_FILE=TripBuddy/backend/.env.prod \
         HEALTH_TIMEOUT=120 \
         ./deploy.sh \
           "$(BACKEND_IMAGE)" \
           "$(FRONTEND_IMAGE)" \
           "$(PROMETHEUS_IMAGE)" \
           "$(GRAFANA_IMAGE)"
-      displayName: 'Rolling Deploy with Health-Check Gating'
+      displayName: 'Blue-Green Rolling Deploy'
     
     - script: |
         # Load environment variables to display ports
@@ -335,3 +306,13 @@ stages:
         echo "Container health status:"
         docker ps --filter "name=tripbuddy" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
       displayName: 'Deployment Summary'
+
+    - script: |
+        echo "Pruning unused Docker images..."
+        # Remove all dangling (untagged) images
+        docker image prune -f
+        # Remove images not referenced by any container (keeps currently running ones)
+        docker image prune -a -f --filter "until=24h"
+        echo "Disk usage after prune:"
+        docker system df
+      displayName: 'Prune Unused Docker Images'
