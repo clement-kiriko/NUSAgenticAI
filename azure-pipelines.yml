@@ -21,10 +21,10 @@ variables:
   AGENT_ENV_FILE: '/home/azureuser/app_variables/.env'
 
 stages:
-- stage: CodeAnalysis
-  displayName: 'Code Quality Analysis'
+- stage: UnitTests
+  displayName: 'Unit Tests'
   jobs:
-  - job: RunTests
+  - job: RunUnitTests
     displayName: 'Run Pytest Unit Tests'
     steps:
     - checkout: self
@@ -36,12 +36,52 @@ stages:
         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
         /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
         cd TripBuddy/backend
-        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short \
+          --junit-xml=../../test-results/unit-tests.xml
       displayName: 'Run Backend Unit Tests'
 
+    - task: PublishTestResults@2
+      displayName: 'Publish Unit Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'test-results/unit-tests.xml'
+        testRunTitle: 'Unit Tests'
+
+- stage: AISecurityTests
+  displayName: 'AI Security Tests'
+  dependsOn: UnitTests
+  jobs:
+  - job: RunAISecurityTests
+    displayName: 'Run AI Security Test Suite'
+    steps:
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    - script: |
+        python3 -m venv /tmp/tripbuddy-ci-venv
+        /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
+        /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
+        cd TripBuddy/backend
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_ai_security.py -v --tb=short \
+          --junit-xml=../../test-results/ai-security-tests.xml
+      displayName: 'Run AI Security Tests'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish AI Security Test Results'
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'test-results/ai-security-tests.xml'
+        testRunTitle: 'AI Security Tests'
+
+- stage: CodeAnalysis
+  displayName: 'Code Quality Analysis'
+  dependsOn: AISecurityTests
+  jobs:
   - job: SonarScan
     displayName: 'SonarQube Scan'
-    dependsOn: RunTests
     steps:
     - checkout: self
       displayName: 'Checkout Code'
@@ -258,15 +298,21 @@ stages:
         export PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE)
         export GRAFANA_IMAGE=$(GRAFANA_IMAGE)
         
-        # Deploy the stack
-        docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
-      displayName: 'Deploy Docker Stack'
+        # Rolling deployment – updates one service at a time with health-check
+        # gating. Automatically rolls back to :latest images if any service
+        # fails its health check.
+        chmod +x deploy.sh
+        ENV_FILE=.env.prod \
+        COMPOSE_FILE=docker-compose.prod.yml \
+        HEALTH_TIMEOUT=120 \
+        ./deploy.sh \
+          "$(BACKEND_IMAGE)" \
+          "$(FRONTEND_IMAGE)" \
+          "$(PROMETHEUS_IMAGE)" \
+          "$(GRAFANA_IMAGE)"
+      displayName: 'Rolling Deploy with Health-Check Gating'
     
     - script: |
-        # Wait for services to start
-        echo "Waiting for services to start..."
-        sleep 10
-        
         # Load environment variables to display ports
         set -a
         source .env.prod

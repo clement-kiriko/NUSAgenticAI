@@ -9,6 +9,21 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
 
   frontend:
     image: ${FRONTEND_IMAGE:-tripbuddy-frontend:latest}
@@ -16,12 +31,28 @@ services:
       context: .
       dockerfile: TripBuddy/frontend/Dockerfile
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     environment:
       API_UPSTREAM: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-80}:80"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-tripbuddy-prometheus:latest}
