@@ -83,3 +83,8 @@ services:
       restart_policy:
         condition: on-failure
 
+networks:
+  default:
+    driver: overlay
+    attachable: true
+

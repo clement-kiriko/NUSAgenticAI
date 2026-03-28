@@ -30,6 +30,14 @@ echo "[deploy]   frontend  : $FRONTEND_IMAGE"
 echo "[deploy]   prometheus: $PROMETHEUS_IMAGE"
 echo "[deploy]   grafana   : $GRAFANA_IMAGE"
 
+# Remove any leftover bridge network from a previous docker compose setup.
+# Swarm needs to create an overlay network with the same name; a pre-existing
+# bridge network causes `docker stack deploy` to fail.
+if docker network inspect "${STACK_NAME}_default" --format '{{.Driver}}' 2>/dev/null | grep -qv overlay; then
+    echo "[deploy] Removing legacy non-overlay network ${STACK_NAME}_default..."
+    docker network rm "${STACK_NAME}_default" 2>/dev/null || true
+fi
+
 # --with-registry-auth forwards registry credentials to Swarm nodes so they
 # can pull private images without needing a separate docker login on each node.
 docker stack deploy --with-registry-auth -c "$COMPOSE_FILE" "$STACK_NAME"
