@@ -259,29 +259,21 @@ stages:
       displayName: 'Prepare Environment Files from Agent'
     
     - script: |
-        # Export image names and build metadata for deploy.sh
+        # Export image names so deploy.sh can pass them to docker stack deploy
         export BACKEND_IMAGE=$(BACKEND_IMAGE)
         export FRONTEND_IMAGE=$(FRONTEND_IMAGE)
         export PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE)
         export GRAFANA_IMAGE=$(GRAFANA_IMAGE)
-        export BUILD_ID=$(Build.BuildId)
-        export COMPOSE_PROJECT_NAME=$(COMPOSE_PROJECT_NAME)
         
-        # Blue-green rolling deployment:
-        #   - backend: nginx upstream swap (zero-downtime, existing requests drain)
-        #   - frontend: health-check gated swap
-        #   - prometheus/grafana: plain update (no traffic impact)
+        # Ensure Swarm is initialised (idempotent — safe to run on every deploy)
+        docker swarm init 2>/dev/null || true
+        
         chmod +x deploy.sh
         ENV_FILE=.env.prod \
         COMPOSE_FILE=docker-compose.prod.yml \
-        BACKEND_ENV_FILE=TripBuddy/backend/.env.prod \
-        HEALTH_TIMEOUT=120 \
-        ./deploy.sh \
-          "$(BACKEND_IMAGE)" \
-          "$(FRONTEND_IMAGE)" \
-          "$(PROMETHEUS_IMAGE)" \
-          "$(GRAFANA_IMAGE)"
-      displayName: 'Blue-Green Rolling Deploy'
+        STACK_NAME=$(COMPOSE_PROJECT_NAME) \
+        ./deploy.sh
+      displayName: 'Swarm Stack Deploy'
     
     - script: |
         # Load environment variables to display ports
@@ -295,16 +287,16 @@ stages:
         echo "Build ID: $(Build.BuildId)"
         echo ""
         echo "Service URLs:"
-        echo "  Backend: http://localhost:${BACKEND_PORT:-8000}"
-        echo "  Frontend: http://localhost:${FRONTEND_PORT:-80}"
+        echo "  Backend:    http://localhost:${BACKEND_PORT:-8000}"
+        echo "  Frontend:   http://localhost:${FRONTEND_PORT:-80}"
         echo "  Prometheus: http://localhost:${PROMETHEUS_PORT:-9090}"
-        echo "  Grafana: http://localhost:${GRAFANA_PORT:-3000}"
+        echo "  Grafana:    http://localhost:${GRAFANA_PORT:-3000}"
         echo ""
-        echo "Running containers:"
-        docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+        echo "Stack services:"
+        docker stack services $(COMPOSE_PROJECT_NAME)
         echo ""
-        echo "Container health status:"
-        docker ps --filter "name=tripbuddy" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        echo "Stack tasks:"
+        docker stack ps $(COMPOSE_PROJECT_NAME) --no-trunc
       displayName: 'Deployment Summary'
 
     - script: |

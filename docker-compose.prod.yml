@@ -1,14 +1,10 @@
 services:
   backend:
     image: ${BACKEND_IMAGE:-tripbuddy-backend:latest}
-    build:
-      context: .
-      dockerfile: TripBuddy/backend/Dockerfile
     env_file:
       - TripBuddy/backend/.env.prod
-    # No host port — all external traffic goes through backend_proxy
-    restart: unless-stopped
-    # Give uvicorn 60 s to finish in-flight LLM requests on SIGTERM
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
     stop_grace_period: 60s
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
@@ -17,6 +13,7 @@ services:
       retries: 3
       start_period: 30s
     deploy:
+      replicas: 1
       update_config:
         parallelism: 1
         delay: 10s
@@ -25,32 +22,15 @@ services:
       rollback_config:
         parallelism: 1
         delay: 5s
-
-  backend_proxy:
-    image: nginx:alpine
-    volumes:
-      - ./TripBuddy/tools/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx-upstream.conf:/etc/nginx/conf.d/upstream.conf
-    ports:
-      - "${BACKEND_PORT:-8000}:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
+      restart_policy:
+        condition: on-failure
 
   frontend:
     image: ${FRONTEND_IMAGE:-tripbuddy-frontend:latest}
-    build:
-      context: .
-      dockerfile: TripBuddy/frontend/Dockerfile
-    depends_on:
-      backend_proxy:
-        condition: service_started
     environment:
-      API_UPSTREAM: http://backend_proxy:80
+      API_UPSTREAM: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-80}:80"
-    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
       interval: 10s
@@ -58,6 +38,7 @@ services:
       retries: 3
       start_period: 30s
     deploy:
+      replicas: 1
       update_config:
         parallelism: 1
         delay: 10s
@@ -66,28 +47,27 @@ services:
       rollback_config:
         parallelism: 1
         delay: 5s
+      restart_policy:
+        condition: on-failure
 
   prometheus:
     image: ${PROMETHEUS_IMAGE:-tripbuddy-prometheus:latest}
-    build:
-      context: .
-      dockerfile: TripBuddy/tools/prometheus/Dockerfile.prometheus
-    depends_on:
-      - backend
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
-    restart: unless-stopped
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   grafana:
     image: ${GRAFANA_IMAGE:-tripbuddy-grafana:latest}
-    build:
-      context: .
-      dockerfile: TripBuddy/tools/prometheus/Dockerfile.grafana
-    depends_on:
-      - prometheus
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
     ports:
       - "${GRAFANA_PORT:-3000}:3000"
-    restart: unless-stopped
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
