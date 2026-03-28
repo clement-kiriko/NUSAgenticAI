@@ -52,7 +52,7 @@ services:
       - "${FRONTEND_PORT:-80}:80"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
