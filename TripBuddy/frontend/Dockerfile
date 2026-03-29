@@ -17,7 +17,12 @@ FROM nginx:1.27-alpine AS runtime
 
 ENV API_UPSTREAM=http://backend:8000
 
-COPY TripBuddy/frontend/nginx.conf /etc/nginx/templates/default.conf.template
+RUN apk add --no-cache curl
+
+# Copy config directly — no envsubst template needed since the upstream
+# is always the Swarm service name 'backend'.
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY TripBuddy/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
