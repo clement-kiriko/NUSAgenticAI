@@ -34,7 +34,7 @@ stages:
         python3 -m venv /tmp/tripbuddy-ci-venv
         /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
-        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client fastapi
         cd TripBuddy/backend
         /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short \
           --junit-xml=../../test-results/unit-tests.xml
@@ -62,7 +62,7 @@ stages:
         python3 -m venv /tmp/tripbuddy-ci-venv
         /tmp/tripbuddy-ci-venv/bin/pip install --upgrade pip
         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
-        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client
+        /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client fastapi
         cd TripBuddy/backend
         /tmp/tripbuddy-ci-venv/bin/pytest tests/test_ai_security.py -v --tb=short \
           --junit-xml=../../test-results/ai-security-tests.xml
