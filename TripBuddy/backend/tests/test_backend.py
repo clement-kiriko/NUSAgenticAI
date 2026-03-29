@@ -733,6 +733,17 @@ class TestToolRegistry:
 
 
 class TestPolicyEngine:
+    def test_decision_check_uses_matching_detail_for_boolean(self):
+        from policy_engine import _decision_check
+
+        passed = _decision_check("demo", True, pass_detail="ok", fail_detail="bad")
+        failed = _decision_check("demo", False, pass_detail="ok", fail_detail="bad")
+
+        assert passed["passed"] is True
+        assert passed["detail"] == "ok"
+        assert failed["passed"] is False
+        assert failed["detail"] == "bad"
+
     def test_initialize_governance_state_sets_metadata(self):
         from policy_engine import initialize_governance_state
 
@@ -858,6 +869,26 @@ class TestPolicyEngine:
         assert coercive_check["passed"] is False
         assert "detected" in coercive_check["detail"].lower()
         assert "book now" in coercive_check["detail"].lower()
+
+    def test_budget_within_limit_detail_matches_boolean(self):
+        from policy_engine import evaluate_state, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={"selected_option": {"route": "SIN-TYO"}, "weather_notes": "Clear", "estimated_total_sgd": 100},
+            locations_plan={"top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify"}], "estimated_total_sgd": 50},
+            food_plan={"meal_plan": "Meals", "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify"}], "estimated_total_sgd": 120},
+            accomodations_plan={"selected_stay": {"name": "Inn", "source": "geoapify"}, "estimated_total_sgd": 200},
+            budget_plan={"projected_total_sgd": 470, "within_budget": True, "buffer_sgd": 1030},
+            report={"overview": "Trip"},
+            tool_calls=[{"tool": "FlightAPI"}],
+        )
+        initialize_governance_state(state)
+
+        evaluation = evaluate_state(state)
+        budget_check = next(item for item in evaluation["assurance"]["validation_checks"] if item["name"] == "budget_within_limit")
+
+        assert budget_check["passed"] is True
+        assert "within the user's stated budget" in budget_check["detail"].lower()
 
 
 class TestApiServerHelpers:

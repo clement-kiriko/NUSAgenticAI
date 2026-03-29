@@ -192,36 +192,98 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
     trust_score = round(sum(trust_scores[key] * TRUST_WEIGHTS[key] for key in TRUST_WEIGHTS) * 100, 1)
 
     assurance_checks = [
-        _check("required_fields_complete", not missing_fields, "All critical plan sections are populated." if not missing_fields else f"Missing fields: {', '.join(missing_fields)}"),
-        _check("budget_consistency", projected_total >= 0, "Projected total was calculated from specialist outputs."),
-        _check("budget_within_limit", within_budget, "Projected total is within the user's stated budget." if within_budget else f"Projected total exceeds budget by SGD {max(0.0, projected_total - total_budget):.2f}."),
-        _check("flight_tool_evidence", any(call.get("tool") == "FlightAPI" for call in tool_calls), "Flight recommendation is backed by the flight tool call log."),
-        _check("multi_signal_destination_validation", len(set(evidence_sources)) >= 3, "Locations, food, and accommodation recommendations are backed by multiple tool/data sources."),
-        _check("fallback_pressure", len(fallback_markers) <= 1, "Low fallback/tool-failure pressure detected." if len(fallback_markers) <= 1 else f"Fallback markers detected: {', '.join(fallback_markers)}"),
+        _decision_check(
+            "required_fields_complete",
+            not missing_fields,
+            pass_detail="All critical plan sections are populated.",
+            fail_detail=f"Missing fields: {', '.join(missing_fields)}",
+        ),
+        _decision_check(
+            "budget_consistency",
+            projected_total >= 0,
+            pass_detail="Projected total was calculated from specialist outputs.",
+            fail_detail="Projected total could not be calculated from specialist outputs.",
+        ),
+        _decision_check(
+            "budget_within_limit",
+            within_budget,
+            pass_detail="Projected total is within the user's stated budget.",
+            fail_detail=f"Projected total exceeds budget by SGD {max(0.0, projected_total - total_budget):.2f}.",
+        ),
+        _decision_check(
+            "flight_tool_evidence",
+            any(call.get("tool") == "FlightAPI" for call in tool_calls),
+            pass_detail="Flight recommendation is backed by the flight tool call log.",
+            fail_detail="Flight recommendation is missing direct flight tool evidence.",
+        ),
+        _decision_check(
+            "multi_signal_destination_validation",
+            len(set(evidence_sources)) >= 3,
+            pass_detail="Locations, food, and accommodation recommendations are backed by multiple tool/data sources.",
+            fail_detail="Destination recommendations do not yet show strong multi-source support.",
+        ),
+        _decision_check(
+            "fallback_pressure",
+            len(fallback_markers) <= 1,
+            pass_detail="Low fallback/tool-failure pressure detected.",
+            fail_detail=f"Fallback markers detected: {', '.join(fallback_markers)}",
+        ),
     ]
     assurance_score = round(sum(1 for item in assurance_checks if item["passed"]) / len(assurance_checks) * 100, 1)
 
     fairness_checks = [
-        _check("sponsored_bias_control", True, "No sponsored result boost path exists in the ranking logic or tool payloads."),
-        _check("dietary_constraint_respected", (not has_dietary_need) or dietary_supported, "Dietary restrictions are reflected in food selection notes." if dietary_supported or not has_dietary_need else "Dietary restrictions were captured but not clearly reflected in food reasoning."),
-        _check("option_diversity", diversity["food_styles"] >= 2 or diversity["attraction_types"] >= 2, f"Food styles={diversity['food_styles']}, attraction types={diversity['attraction_types']}."),
-        _check("stable_tie_breaking", True, "Deterministic fallback logic keeps ranking stable when LLM output is missing."),
+        _decision_check(
+            "sponsored_bias_control",
+            True,
+            pass_detail="No sponsored result boost path exists in the ranking logic or tool payloads.",
+            fail_detail="Sponsored result boosting was detected in the ranking logic or tool payloads.",
+        ),
+        _decision_check(
+            "dietary_constraint_respected",
+            (not has_dietary_need) or dietary_supported,
+            pass_detail="Dietary restrictions are reflected in food selection notes.",
+            fail_detail="Dietary restrictions were captured but not clearly reflected in food reasoning.",
+        ),
+        _decision_check(
+            "option_diversity",
+            diversity["food_styles"] >= 2 or diversity["attraction_types"] >= 2,
+            pass_detail=f"Food styles={diversity['food_styles']}, attraction types={diversity['attraction_types']}.",
+            fail_detail=f"Food styles={diversity['food_styles']}, attraction types={diversity['attraction_types']}.",
+        ),
+        _decision_check(
+            "stable_tie_breaking",
+            True,
+            pass_detail="Deterministic fallback logic keeps ranking stable when LLM output is missing.",
+            fail_detail="Ranking fallback is not deterministic.",
+        ),
     ]
 
     matched_coercive_pattern = _matched_coercive_pattern(state.get("report", {}))
     ethical_checks = [
-        _check("dietary_needs_preserved", (not has_dietary_need) or dietary_supported, "Dietary requirements remain visible in the final plan."),
-        _check("budget_transparency", "buffer_sgd" in budget_plan or "projected_total_sgd" in budget_plan, "Budget summary exposes total and budget headroom/shortfall."),
-        _check(
+        _decision_check(
+            "dietary_needs_preserved",
+            (not has_dietary_need) or dietary_supported,
+            pass_detail="Dietary requirements remain visible in the final plan.",
+            fail_detail="Dietary requirements are not clearly preserved in the final plan.",
+        ),
+        _decision_check(
+            "budget_transparency",
+            "buffer_sgd" in budget_plan or "projected_total_sgd" in budget_plan,
+            pass_detail="Budget summary exposes total and budget headroom/shortfall.",
+            fail_detail="Budget summary does not clearly expose total and budget headroom/shortfall.",
+        ),
+        _decision_check(
             "coercive_language_absent",
             not bool(matched_coercive_pattern),
-            (
-                "No urgency-selling or dark-pattern phrasing detected in the generated plan."
-                if not matched_coercive_pattern
-                else f"Urgency-selling or dark-pattern phrasing was detected in the generated plan: '{matched_coercive_pattern}'."
-            ),
+            pass_detail="No urgency-selling or dark-pattern phrasing detected in the generated plan.",
+            fail_detail=f"Urgency-selling or dark-pattern phrasing was detected in the generated plan: '{matched_coercive_pattern}'.",
         ),
-        _check("destination_risk_keywords", not _contains_risk_destination(req), "No explicit high-risk destination keyword matched the rule set."),
+        _decision_check(
+            "destination_risk_keywords",
+            not _contains_risk_destination(req),
+            pass_detail="No explicit high-risk destination keyword matched the rule set.",
+            fail_detail="A high-risk destination keyword matched the rule set.",
+        ),
     ]
 
     autonomy_reasons = []
@@ -335,6 +397,10 @@ def _utc_now() -> str:
 
 def _check(name: str, passed: bool, detail: str) -> Dict[str, Any]:
     return {"name": name, "passed": bool(passed), "detail": detail}
+
+
+def _decision_check(name: str, passed: bool, *, pass_detail: str, fail_detail: str) -> Dict[str, Any]:
+    return _check(name, passed, pass_detail if passed else fail_detail)
 
 
 def _safe_float(value: Any) -> float:
