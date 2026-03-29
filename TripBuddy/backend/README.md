@@ -102,45 +102,126 @@ npm run dev
 Open `http://localhost:5173`.
 
 ## Production Runtime
-Use the production container entrypoint instead of `--reload`:
+This repo's production compose file is configured for Docker Swarm.
+
+If you keep the `overlay` network in [docker-compose.prod.yml](/d:/Downloads/Work/NUS_ISS/ArchitectingAISystems/code/NUSAgenticAI/docker-compose.prod.yml), do not use `docker compose up`. Use Docker Swarm with `docker stack deploy`.
+
+### Production Prerequisites
+- Docker Desktop is running
+- You are in the repo root
+- `.env.prod` exists at the repo root
+- `TripBuddy/backend/.env.prod` exists for backend secrets
+
+Production env templates:
+- `.env.prod.example`
+- `TripBuddy/backend/.env.prod.example`
+
+### Initialize Swarm Once
+Run this once on the machine if Swarm is not already initialized:
 
 ```bash
-uvicorn api_server:app --host 0.0.0.0 --port 8000
+docker swarm init
 ```
 
-Production env template:
-- `.env.prod.example`
+If Docker reports that this node is already part of a swarm, keep going.
 
-Backend build from the repo root:
+### Build Images
+From the repo root:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml build
+```
+
+You can also build individual services:
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml build backend
-```
-
-Monitoring builds from the repo root:
-
-```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml build frontend
 docker compose --env-file .env.prod -f docker-compose.prod.yml build prometheus grafana
 ```
 
-If you want backend plus monitoring together in production:
+### Deploy Production Stack
+From the repo root:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build backend prometheus grafana
+docker stack deploy --compose-file docker-compose.prod.yml tripbuddy
 ```
+
+This deploys:
+- `backend`
+- `frontend`
+- `prometheus`
+- `grafana`
+
+### Check Stack Status
+
+```bash
+docker stack services tripbuddy
+docker stack ps tripbuddy
+```
+
+### Check Container Logs
+Use service names shown by `docker stack services`. Typical examples:
+
+```bash
+docker service logs tripbuddy_backend --follow
+docker service logs tripbuddy_frontend --follow
+docker service logs tripbuddy_prometheus --follow
+docker service logs tripbuddy_grafana --follow
+```
+
+### Update After Code Changes
+Rebuild images, then redeploy the stack:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml build
+docker stack deploy --compose-file docker-compose.prod.yml tripbuddy
+```
+
+### Remove Production Stack
+
+```bash
+docker stack rm tripbuddy
+```
+
+### Leave Swarm If Needed
+If you no longer want the machine in swarm mode after removing the stack:
+
+```bash
+docker swarm leave --force
+```
+
+### Troubleshooting
+If you run:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
+```
+
+against this file, you can get:
+
+```text
+This node is not a swarm manager
+failed to create network tripbuddy_default
+```
+
+That happens because the file uses a Swarm-only `overlay` network. With the current compose file, the correct production path is `docker swarm init` followed by `docker stack deploy`.
 
 Default production endpoints:
 - Backend API: `http://localhost:8000`
+- Frontend UI: `http://localhost`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
 
 Verify backend and monitoring:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml ps
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs backend
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs prometheus
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs grafana
+docker stack services tripbuddy
+docker stack ps tripbuddy
+docker service logs tripbuddy_backend
+docker service logs tripbuddy_frontend
+docker service logs tripbuddy_prometheus
+docker service logs tripbuddy_grafana
 ```
 
 Check backend endpoints:

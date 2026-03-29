@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Generator
 
@@ -15,6 +16,64 @@ from agents import (
 from monitoring import timed_agent_call
 
 logger = logging.getLogger(__name__)
+
+_CITY_UPDATE_PATTERNS = (
+    re.compile(
+        r"\b(?:change|set|update|switch)\s+(?:the\s+)?city\s+(?:to\s+)?(?P<city>[A-Za-z][A-Za-z\s.'-]{1,60})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bcity\s*(?::|=|to)\s*(?P<city>[A-Za-z][A-Za-z\s.'-]{1,60})",
+        re.IGNORECASE,
+    ),
+)
+_DESTINATION_PHRASE_PATTERNS = (
+    re.compile(
+        r"\b(?:go to|visit|travel to|head to|prefer|instead of|rather than)\s+(?P<cities>[A-Za-z][A-Za-z\s.'-]*(?:\s*(?:,|/|and|or)\s*[A-Za-z][A-Za-z\s.'-]*)*)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:not\s+[A-Za-z][A-Za-z\s.'-]*,\s*)?(?:i want to go to|i want to visit|i'd like to visit|i would like to visit)\s+(?P<cities>[A-Za-z][A-Za-z\s.'-]*(?:\s*(?:,|/|and|or)\s*[A-Za-z][A-Za-z\s.'-]*)*)",
+        re.IGNORECASE,
+    ),
+)
+_CITY_SPLIT_PATTERN = re.compile(r"\s*(?:,|/|\band\b|\bor\b)\s*", re.IGNORECASE)
+_NOISE_WORDS = {
+    "please",
+    "trip",
+    "plan",
+    "my",
+    "the",
+    "a",
+    "an",
+    "for",
+    "now",
+    "thanks",
+    "thank you",
+    "maybe",
+    "can we do",
+    "can we visit",
+}
+_TRAILING_CITY_PHRASES = (
+    " instead",
+    " now",
+    " please",
+    " this time",
+    " for this trip",
+    " only",
+)
+_COUNTRY_HINTS = {
+    "indonesia",
+    "japan",
+    "thailand",
+    "singapore",
+    "malaysia",
+    "vietnam",
+    "korea",
+    "south korea",
+    "taiwan",
+    "china",
+}
 
 
 def _build_location_preference(country: str, city: str = "") -> str:
@@ -34,11 +93,13 @@ def _compute_end_date(start_date: str, days: int) -> str:
 def build_initial_state(requirements: Dict[str, Any]) -> Dict[str, Any]:
     country = str(requirements["country"]).strip()
     city = str(requirements.get("city") or "").strip()
+    requested_cities = [city] if city else []
     req = {
         "days": int(requirements["days"]),
         "budget_sgd": float(requirements["budget_sgd"]),
         "country": country,
         "city": city,
+        "requested_cities": requested_cities,
         "location_preference": _build_location_preference(country, city),
         "start_date": str(requirements["start_date"]),
         "end_date": _compute_end_date(str(requirements["start_date"]), int(requirements["days"])),
@@ -55,6 +116,145 @@ def build_initial_state(requirements: Dict[str, Any]) -> Dict[str, Any]:
         "tool_calls": [],
         "conversation": [("human_intake", req)],
     }
+
+
+def _clean_extracted_city(value: str) -> str:
+    city = re.split(r"[,.!?\n\r]+", value, maxsplit=1)[0]
+    return city.strip(" .,'\"")
+
+
+def _normalize_city_token(value: str) -> str:
+    cleaned = value.strip(" .,'\"")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    lowered = cleaned.casefold()
+    for suffix in _TRAILING_CITY_PHRASES:
+        if lowered.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)].strip(" .,'\"")
+            lowered = cleaned.casefold()
+    return cleaned.title()
+
+
+def _dedupe_cities(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = _normalize_city_token(value)
+        key = normalized.casefold()
+        if not normalized or key in seen or key in _COUNTRY_HINTS:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
+
+
+def _extract_city_list(value: str) -> list[str]:
+    cleaned = value.strip()
+    if not cleaned:
+        return []
+    pieces = _CITY_SPLIT_PATTERN.split(cleaned)
+    filtered = [piece for piece in pieces if piece and piece.casefold() not in _NOISE_WORDS]
+    return _dedupe_cities(filtered)
+
+
+def _extract_destination_updates_with_rules(feedback: str) -> Dict[str, Any]:
+    for pattern in _CITY_UPDATE_PATTERNS:
+        match = pattern.search(feedback)
+        if match:
+            cities = _extract_city_list(match.group("city"))
+            if cities:
+                return {"cities": cities}
+
+    for pattern in _DESTINATION_PHRASE_PATTERNS:
+        match = pattern.search(feedback)
+        if match:
+            cities = _extract_city_list(match.group("cities"))
+            if cities:
+                return {"cities": cities}
+
+    return {}
+
+
+def _extract_destination_updates_with_llm(state: Dict[str, Any], feedback: str) -> Dict[str, Any]:
+    try:
+        from agents.orchestrator import invoke_json
+        from tools.security.guardrail import detect_prompt_injection
+    except Exception:
+        return {}
+
+    if detect_prompt_injection(feedback):
+        return {}
+
+    req = state.get("user_requirements", {})
+    system = (
+        "Extract destination updates from the user's travel-planning feedback. "
+        "Return JSON only with keys: cities (array of strings), country (string), clear_city (boolean). "
+        "If no destination update is requested, return {\"cities\": [], \"country\": \"\", \"clear_city\": false}. "
+        "Do not invent cities. Preserve only explicit user intent."
+    )
+    user = (
+        f"Current requirements: {json.dumps(req, ensure_ascii=True)}\n"
+        f"Feedback: {feedback}\n"
+        "Examples:\n"
+        "- 'change city to jakarta' => {\"cities\": [\"Jakarta\"], \"country\": \"\", \"clear_city\": false}\n"
+        "- 'not bali, i want to go to jakarta or bandung' => {\"cities\": [\"Jakarta\", \"Bandung\"], \"country\": \"\", \"clear_city\": false}\n"
+        "- 'just indonesia, no specific city' => {\"cities\": [], \"country\": \"Indonesia\", \"clear_city\": true}"
+    )
+    parsed = invoke_json(state, system, user)
+    if not isinstance(parsed, dict):
+        return {}
+
+    cities = parsed.get("cities")
+    country = str(parsed.get("country") or "").strip()
+    clear_city = bool(parsed.get("clear_city", False))
+    if not isinstance(cities, list):
+        cities = []
+    return {
+        "cities": _dedupe_cities([str(city) for city in cities]),
+        "country": country,
+        "clear_city": clear_city,
+    }
+
+
+def _extract_destination_updates(state: Dict[str, Any], feedback: str) -> Dict[str, Any]:
+    llm_updates = _extract_destination_updates_with_llm(state, feedback)
+    if llm_updates.get("cities") or llm_updates.get("country") or llm_updates.get("clear_city"):
+        return llm_updates
+    return _extract_destination_updates_with_rules(feedback)
+
+
+def _apply_feedback_updates(state: Dict[str, Any], feedback: str) -> None:
+    cleaned_feedback = str(feedback or "").strip()
+    if not cleaned_feedback:
+        return
+
+    req = state.get("user_requirements")
+    if not isinstance(req, dict):
+        return
+
+    updates = _extract_destination_updates(state, cleaned_feedback)
+    cities = _dedupe_cities([str(city) for city in updates.get("cities", [])])
+    country = str(updates.get("country") or "").strip()
+    clear_city = bool(updates.get("clear_city", False))
+
+    if country:
+        req["country"] = country
+
+    if cities:
+        req["city"] = cities[0]
+        req["requested_cities"] = cities
+    elif clear_city:
+        req["city"] = ""
+        req["requested_cities"] = []
+    else:
+        return
+
+    req["location_preference"] = _build_location_preference(req.get("country", ""), req.get("city", ""))
+    logger.info(
+        "Planner feedback updated destination city=%s requested_cities=%s location_preference=%s",
+        req.get("city", ""),
+        req.get("requested_cities", []),
+        req["location_preference"],
+    )
 
 
 def _run_one_round(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -174,6 +374,7 @@ def run_planner_stream(
 
     if feedback.strip():
         state["feedback"] = feedback.strip()
+        _apply_feedback_updates(state, state["feedback"])
         state.setdefault("conversation", []).append(("human_feedback", state["feedback"]))
         logger.info("Planner feedback received round=%s feedback=%s", state.get("round_number", 0), feedback.strip())
 

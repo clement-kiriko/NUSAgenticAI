@@ -1,5 +1,6 @@
 import os
 import logging
+import math
 import time
 from typing import Dict, List, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -7,6 +8,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_GEOAPIFY_ROUTING_DISTANCE_LIMIT_M = 10_000_000
 
 
 def _mask_api_key(url: str) -> str:
@@ -33,6 +36,40 @@ def _geoapify_get(url: str, params: dict, timeout: int, log_name: str) -> httpx.
     )
     resp.raise_for_status()
     return resp
+
+
+def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
+    radius_m = 6_371_000
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return round(radius_m * c)
+
+
+def _routing_limit_exceeded(exc: httpx.HTTPStatusError) -> bool:
+    if exc.response is None or exc.response.status_code != 400:
+        return False
+
+    try:
+        payload = exc.response.json()
+    except ValueError:
+        payload = {}
+
+    message = ""
+    if isinstance(payload, dict):
+        message = str(payload.get("message", ""))
+    if not message:
+        message = exc.response.text
+
+    lowered = message.lower()
+    return "distance should not exceed" in lowered and "estimated distance is" in lowered
 
 
 def _geoapify_geocode(query: str, key: str) -> Optional[Dict]:
@@ -332,26 +369,56 @@ def maps_api(origin: str, destination: str) -> Dict:
             o = origin_resp.json().get("features", [{}])[0].get("geometry", {}).get("coordinates", [])
             d = dest_resp.json().get("features", [{}])[0].get("geometry", {}).get("coordinates", [])
             if len(o) == 2 and len(d) == 2:
-                route_resp = _geoapify_get(
-                    "https://api.geoapify.com/v1/routing",
-                    {
-                        "waypoints": f"{o[1]},{o[0]}|{d[1]},{d[0]}",
-                        "mode": "drive",
-                        "apiKey": key,
-                    },
-                    timeout=15,
-                    log_name=f"Geoapify routing origin={origin} destination={destination}",
-                )
+                distance_m = _haversine_distance_m(o[1], o[0], d[1], d[0])
+                if distance_m > _GEOAPIFY_ROUTING_DISTANCE_LIMIT_M:
+                    return {
+                        "origin": origin,
+                        "destination": destination,
+                        "typical_taxi_minutes": None,
+                        "distance_km": round(distance_m / 1000, 1),
+                        "source": "geoapify_distance_fallback",
+                        "note": "Straight-line estimate used because route exceeds Geoapify distance limit.",
+                    }
+
+                try:
+                    route_resp = _geoapify_get(
+                        "https://api.geoapify.com/v1/routing",
+                        {
+                            "waypoints": f"{o[1]},{o[0]}|{d[1]},{d[0]}",
+                            "mode": "drive",
+                            "apiKey": key,
+                        },
+                        timeout=15,
+                        log_name=f"Geoapify routing origin={origin} destination={destination}",
+                    )
+                except httpx.HTTPStatusError as exc:
+                    if _routing_limit_exceeded(exc):
+                        logger.warning(
+                            "Geoapify routing limit exceeded origin=%s destination=%s distance_m=%s",
+                            origin,
+                            destination,
+                            distance_m,
+                        )
+                        return {
+                            "origin": origin,
+                            "destination": destination,
+                            "typical_taxi_minutes": None,
+                            "distance_km": round(distance_m / 1000, 1),
+                            "source": "geoapify_distance_fallback",
+                            "note": "Straight-line estimate used because route exceeds Geoapify distance limit.",
+                        }
+                    raise
+
                 features = route_resp.json().get("features", [])
                 if features:
                     props = features[0].get("properties", {})
                     duration_sec = props.get("time", 0)
-                    distance_m = props.get("distance", 0)
+                    route_distance_m = props.get("distance", 0)
                     return {
                         "origin": origin,
                         "destination": destination,
                         "typical_taxi_minutes": round(duration_sec / 60) if duration_sec else None,
-                        "distance_km": round(distance_m / 1000, 1) if distance_m else None,
+                        "distance_km": round(route_distance_m / 1000, 1) if route_distance_m else round(distance_m / 1000, 1),
                         "source": "geoapify",
                     }
         except Exception:

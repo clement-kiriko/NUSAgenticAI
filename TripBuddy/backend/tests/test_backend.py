@@ -30,6 +30,9 @@ def _minimal_state(**overrides) -> dict:
         "user_requirements": {
             "days": 3,
             "budget_sgd": 1500.0,
+            "country": "Japan",
+            "city": "Tokyo",
+            "requested_cities": ["Tokyo"],
             "location_preference": "Tokyo, Japan",
             "start_date": "2026-06-01",
             "end_date": "2026-06-03",
@@ -291,6 +294,7 @@ class TestBuildInitialState:
     def test_city_is_preserved_when_provided(self):
         state = self.fn(self._requirements(city="Tokyo"))
         assert state["user_requirements"]["city"] == "Tokyo"
+        assert state["user_requirements"]["requested_cities"] == ["Tokyo"]
         assert state["user_requirements"]["country"] == "Japan"
 
     def test_location_preference_uses_city_and_country_when_city_present(self):
@@ -300,6 +304,79 @@ class TestBuildInitialState:
     def test_location_preference_falls_back_to_country_when_city_missing(self):
         state = self.fn(self._requirements(city=""))
         assert state["user_requirements"]["location_preference"] == "Japan"
+
+
+class TestApplyFeedbackUpdates:
+    """Tests for planner._apply_feedback_updates."""
+
+    def setup_method(self):
+        from planner import _apply_feedback_updates
+        self.fn = _apply_feedback_updates
+
+    def test_change_city_feedback_updates_location_preference(self):
+        state = _minimal_state()
+        state["user_requirements"]["country"] = "Indonesia"
+        state["user_requirements"]["city"] = "Bali"
+        state["user_requirements"]["requested_cities"] = ["Bali"]
+        state["user_requirements"]["location_preference"] = "Bali, Indonesia"
+
+        self.fn(state, "change city to Jakarta")
+
+        assert state["user_requirements"]["city"] == "Jakarta"
+        assert state["user_requirements"]["requested_cities"] == ["Jakarta"]
+        assert state["user_requirements"]["location_preference"] == "Jakarta, Indonesia"
+
+    def test_city_assignment_feedback_strips_punctuation(self):
+        state = _minimal_state()
+        state["user_requirements"]["country"] = "Indonesia"
+        state["user_requirements"]["city"] = "Bali"
+        state["user_requirements"]["requested_cities"] = ["Bali"]
+        state["user_requirements"]["location_preference"] = "Bali, Indonesia"
+
+        self.fn(state, "city: Jakarta, please refresh the plan")
+
+        assert state["user_requirements"]["city"] == "Jakarta"
+        assert state["user_requirements"]["requested_cities"] == ["Jakarta"]
+        assert state["user_requirements"]["location_preference"] == "Jakarta, Indonesia"
+
+    def test_unrelated_feedback_does_not_change_city(self):
+        state = _minimal_state()
+        state["user_requirements"]["country"] = "Indonesia"
+        state["user_requirements"]["city"] = "Bali"
+        state["user_requirements"]["requested_cities"] = ["Bali"]
+        state["user_requirements"]["location_preference"] = "Bali, Indonesia"
+
+        self.fn(state, "make the trip cheaper")
+
+        assert state["user_requirements"]["city"] == "Bali"
+        assert state["user_requirements"]["requested_cities"] == ["Bali"]
+        assert state["user_requirements"]["location_preference"] == "Bali, Indonesia"
+
+    def test_natural_language_destination_change_is_parsed(self):
+        state = _minimal_state()
+        state["user_requirements"]["country"] = "Indonesia"
+        state["user_requirements"]["city"] = "Bali"
+        state["user_requirements"]["requested_cities"] = ["Bali"]
+        state["user_requirements"]["location_preference"] = "Bali, Indonesia"
+
+        self.fn(state, "Not Bali, I want to go to Jakarta instead")
+
+        assert state["user_requirements"]["city"] == "Jakarta"
+        assert state["user_requirements"]["requested_cities"] == ["Jakarta"]
+        assert state["user_requirements"]["location_preference"] == "Jakarta, Indonesia"
+
+    def test_multiple_cities_preserve_all_mentions_and_pick_primary_city(self):
+        state = _minimal_state()
+        state["user_requirements"]["country"] = "Indonesia"
+        state["user_requirements"]["city"] = "Bali"
+        state["user_requirements"]["requested_cities"] = ["Bali"]
+        state["user_requirements"]["location_preference"] = "Bali, Indonesia"
+
+        self.fn(state, "I want to go to Jakarta and Bandung")
+
+        assert state["user_requirements"]["city"] == "Jakarta"
+        assert state["user_requirements"]["requested_cities"] == ["Jakarta", "Bandung"]
+        assert state["user_requirements"]["location_preference"] == "Jakarta, Indonesia"
 
 
 class TestReportToMarkdown:
