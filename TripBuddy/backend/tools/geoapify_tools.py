@@ -1,16 +1,47 @@
 import os
+import logging
+import time
 from typing import Dict, List, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
+logger = logging.getLogger(__name__)
 
-def _geoapify_geocode(query: str, key: str) -> Optional[Dict]:
-    resp = httpx.get(
-        "https://api.geoapify.com/v1/geocode/search",
-        params={"text": query, "limit": 1, "apiKey": key},
-        timeout=10,
+
+def _mask_api_key(url: str) -> str:
+    parts = urlsplit(url)
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key == "apiKey" and value:
+            value = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "***"
+        query.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _geoapify_get(url: str, params: dict, timeout: int, log_name: str) -> httpx.Response:
+    started_at = time.monotonic()
+    resp = httpx.get(url, params=params, timeout=timeout)
+    elapsed_ms = round((time.monotonic() - started_at) * 1000, 1)
+    logger.info(
+        "%s completed status=%s elapsed_ms=%s url=%s body=%s",
+        log_name,
+        resp.status_code,
+        elapsed_ms,
+        _mask_api_key(str(resp.request.url)),
+        resp.text[:500],
     )
     resp.raise_for_status()
+    return resp
+
+
+def _geoapify_geocode(query: str, key: str) -> Optional[Dict]:
+    resp = _geoapify_get(
+        "https://api.geoapify.com/v1/geocode/search",
+        {"text": query, "limit": 1, "apiKey": key},
+        timeout=10,
+        log_name=f"Geoapify geocode query={query}",
+    )
     features = resp.json().get("features", [])
     if not features:
         return None
@@ -29,9 +60,9 @@ def _geoapify_geocode(query: str, key: str) -> Optional[Dict]:
 
 
 def _geoapify_places(lon: float, lat: float, categories: str, key: str, limit: int = 6) -> List[Dict]:
-    resp = httpx.get(
+    resp = _geoapify_get(
         "https://api.geoapify.com/v2/places",
-        params={
+        {
             "categories": categories,
             "filter": f"circle:{lon},{lat},8000",
             "bias": f"proximity:{lon},{lat}",
@@ -39,8 +70,8 @@ def _geoapify_places(lon: float, lat: float, categories: str, key: str, limit: i
             "apiKey": key,
         },
         timeout=15,
+        log_name=f"Geoapify places categories={categories}",
     )
-    resp.raise_for_status()
     return resp.json().get("features", [])
 
 
@@ -112,7 +143,7 @@ def tourist_attraction_api(destination: str) -> List[Dict]:
                 if rows:
                     return rows
         except Exception:
-            pass
+            logger.exception("Tourist attraction lookup failed destination=%s", destination)
 
     defaults = [
         {"name": "Central Heritage District", "type": "culture", "ticket_sgd": 25, "source": "mock"},
@@ -155,7 +186,7 @@ def food_api(destination: str) -> List[Dict]:
                 if rows:
                     return rows
         except Exception:
-            pass
+            logger.exception("Food catalog lookup failed destination=%s", destination)
 
     return [
         {
@@ -215,7 +246,7 @@ def accomodation_api(destination: str) -> List[Dict]:
                 if rows:
                     return rows
         except Exception:
-            pass
+            logger.exception("Accommodation lookup failed destination=%s", destination)
 
     return [
         {
@@ -252,8 +283,7 @@ def web_search_api(query: str, limit: int = 5) -> List[Dict]:
         url = "https://api.geoapify.com/v1/geocode/search"
         params = {"text": query, "limit": limit, "apiKey": key}
         try:
-            response = httpx.get(url, params=params, timeout=10)
-            response.raise_for_status()
+            response = _geoapify_get(url, params, timeout=10, log_name=f"Geoapify web search query={query}")
             data = response.json()
             rows = []
             for feature in data.get("features", []):
@@ -269,7 +299,7 @@ def web_search_api(query: str, limit: int = 5) -> List[Dict]:
             if rows:
                 return rows
         except Exception:
-            pass
+            logger.exception("Web search lookup failed query=%s", query)
 
     return [
         {"name": f"{query} - Top Pick 1", "snippet": "Highly rated by travelers", "source": "mock"},
@@ -287,27 +317,31 @@ def maps_api(origin: str, destination: str) -> Dict:
     if key:
         try:
             geo_url = "https://api.geoapify.com/v1/geocode/search"
-            origin_resp = httpx.get(
-                geo_url, params={"text": origin, "limit": 1, "apiKey": key}, timeout=10
+            origin_resp = _geoapify_get(
+                geo_url,
+                {"text": origin, "limit": 1, "apiKey": key},
+                timeout=10,
+                log_name=f"Geoapify route geocode origin={origin}",
             )
-            dest_resp = httpx.get(
-                geo_url, params={"text": destination, "limit": 1, "apiKey": key}, timeout=10
+            dest_resp = _geoapify_get(
+                geo_url,
+                {"text": destination, "limit": 1, "apiKey": key},
+                timeout=10,
+                log_name=f"Geoapify route geocode destination={destination}",
             )
-            origin_resp.raise_for_status()
-            dest_resp.raise_for_status()
             o = origin_resp.json().get("features", [{}])[0].get("geometry", {}).get("coordinates", [])
             d = dest_resp.json().get("features", [{}])[0].get("geometry", {}).get("coordinates", [])
             if len(o) == 2 and len(d) == 2:
-                route_resp = httpx.get(
+                route_resp = _geoapify_get(
                     "https://api.geoapify.com/v1/routing",
-                    params={
+                    {
                         "waypoints": f"{o[1]},{o[0]}|{d[1]},{d[0]}",
                         "mode": "drive",
                         "apiKey": key,
                     },
                     timeout=15,
+                    log_name=f"Geoapify routing origin={origin} destination={destination}",
                 )
-                route_resp.raise_for_status()
                 features = route_resp.json().get("features", [])
                 if features:
                     props = features[0].get("properties", {})
@@ -321,7 +355,7 @@ def maps_api(origin: str, destination: str) -> Dict:
                         "source": "geoapify",
                     }
         except Exception:
-            pass
+            logger.exception("Maps lookup failed origin=%s destination=%s", origin, destination)
 
     return {
         "origin": origin,
@@ -340,20 +374,20 @@ def reviews_api(query: str, limit: int = 5) -> List[Dict]:
     key = os.getenv("GEOAPIFY_API_KEY", "").strip()
     if key:
         try:
-            geo_resp = httpx.get(
+            geo_resp = _geoapify_get(
                 "https://api.geoapify.com/v1/geocode/search",
-                params={"text": query, "limit": 1, "apiKey": key},
+                {"text": query, "limit": 1, "apiKey": key},
                 timeout=10,
+                log_name=f"Geoapify reviews geocode query={query}",
             )
-            geo_resp.raise_for_status()
             features = geo_resp.json().get("features", [])
             if features:
                 coords = features[0].get("geometry", {}).get("coordinates", [])
                 if len(coords) == 2:
                     lon, lat = coords
-                    places_resp = httpx.get(
+                    places_resp = _geoapify_get(
                         "https://api.geoapify.com/v2/places",
-                        params={
+                        {
                             "categories": "accommodation.hotel,catering.restaurant,tourism.attraction",
                             "filter": f"circle:{lon},{lat},4000",
                             "bias": f"proximity:{lon},{lat}",
@@ -361,8 +395,8 @@ def reviews_api(query: str, limit: int = 5) -> List[Dict]:
                             "apiKey": key,
                         },
                         timeout=15,
+                        log_name=f"Geoapify reviews places query={query}",
                     )
-                    places_resp.raise_for_status()
                     rows = []
                     for item in places_resp.json().get("features", []):
                         props = item.get("properties", {})
@@ -377,7 +411,7 @@ def reviews_api(query: str, limit: int = 5) -> List[Dict]:
                     if rows:
                         return rows
         except Exception:
-            pass
+            logger.exception("Reviews lookup failed query=%s", query)
 
     return [
         {"place": f"{query} Spot A", "category": ["fallback"], "source": "mock_reviews"},

@@ -1,8 +1,11 @@
+import logging
 from typing import Any, Dict, List
 
 from monitoring import record_tool_call, timed_agent_call
 from runtime.tool_registry import ToolSpec, serialize_tool_catalog
 from utils import debug
+
+logger = logging.getLogger(__name__)
 
 
 class ToolGateway:
@@ -62,9 +65,15 @@ class ToolGateway:
                 }
             )
 
-        result = timed_agent_call(f"tool:{tool_name}", spec.handler, *args, **kwargs)
+        logger.info("Tool call started agent=%s tool=%s args=%s kwargs=%s", agent_name, tool_name, list(args), kwargs)
+        try:
+            result = timed_agent_call(f"tool:{tool_name}", spec.handler, *args, **kwargs)
+        except Exception:
+            logger.exception("Tool call failed agent=%s tool=%s", agent_name, tool_name)
+            raise
         debug(f"{agent_name} -> {tool_name} args={list(args)} kwargs={kwargs}", prefix="TOOL")
         debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
+        logger.info("Tool call completed agent=%s tool=%s", agent_name, tool_name)
         state.setdefault("tool_calls", []).append(
             {"agent": agent_name, "tool": tool_name, "args": list(args), "kwargs": kwargs}
         )

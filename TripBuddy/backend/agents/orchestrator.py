@@ -1,10 +1,13 @@
 import json
+import logging
 from typing import Any, Dict
 
 from prompts import role_prompt
 from runtime import LLM_ROUTER, TOOL_GATEWAY
 from utils import debug
 from tools.security.guardrail import detect_prompt_injection
+
+logger = logging.getLogger(__name__)
 
 def _emit_progress(state: dict, step: str, message: str) -> None:
     emit = state.get("_emit_event")
@@ -55,7 +58,7 @@ def recent_conversation(state: dict, limit: int = 8) -> str:
 
 
 def log_agent(agent_name: str, message: str):
-    print(f"[{agent_name}] {message}")
+    logger.info("[%s] %s", agent_name, message)
 
 
 def orchestrator_agent(state: dict) -> dict:

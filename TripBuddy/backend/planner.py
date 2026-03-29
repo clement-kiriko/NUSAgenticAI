@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, Generator
 
@@ -13,6 +14,16 @@ from agents import (
 )
 from monitoring import timed_agent_call
 
+logger = logging.getLogger(__name__)
+
+
+def _build_location_preference(country: str, city: str = "") -> str:
+    cleaned_country = str(country).strip()
+    cleaned_city = str(city).strip()
+    if cleaned_city:
+        return f"{cleaned_city}, {cleaned_country}" if cleaned_country else cleaned_city
+    return cleaned_country
+
 
 def _compute_end_date(start_date: str, days: int) -> str:
     start = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -21,10 +32,14 @@ def _compute_end_date(start_date: str, days: int) -> str:
 
 
 def build_initial_state(requirements: Dict[str, Any]) -> Dict[str, Any]:
+    country = str(requirements["country"]).strip()
+    city = str(requirements.get("city") or "").strip()
     req = {
         "days": int(requirements["days"]),
         "budget_sgd": float(requirements["budget_sgd"]),
-        "location_preference": str(requirements["country"]).strip(),
+        "country": country,
+        "city": city,
+        "location_preference": _build_location_preference(country, city),
         "start_date": str(requirements["start_date"]),
         "end_date": _compute_end_date(str(requirements["start_date"]), int(requirements["days"])),
         "dietary_restrictions": str(requirements.get("dietary_restrictions") or "none").strip() or "none",
@@ -160,9 +175,17 @@ def run_planner_stream(
     if feedback.strip():
         state["feedback"] = feedback.strip()
         state.setdefault("conversation", []).append(("human_feedback", state["feedback"]))
+        logger.info("Planner feedback received round=%s feedback=%s", state.get("round_number", 0), feedback.strip())
 
     max_rounds = int(state.get("max_rounds", 3))
     aborted = False
+    logger.info(
+        "Planner run started destination=%s start_date=%s end_date=%s max_rounds=%s",
+        state.get("user_requirements", {}).get("location_preference"),
+        state.get("user_requirements", {}).get("start_date"),
+        state.get("user_requirements", {}).get("end_date"),
+        max_rounds,
+    )
     step_start_msg = {
         "orchestrator": "Setting planning strategy for this round.",
         "flight": "Checking flights and weather conditions.",
@@ -187,6 +210,7 @@ def run_planner_stream(
             break
 
         next_round = int(state.get("round_number", 0)) + 1
+        logger.info("Planner round started round=%s max_rounds=%s", next_round, max_rounds)
         yield {"type": "round_started", "round": next_round, "max_rounds": max_rounds}
 
         for name, fn in (
@@ -207,9 +231,15 @@ def run_planner_stream(
                 "round": next_round,
                 "message": step_start_msg.get(name, f"Running {name}"),
             }
-            state = timed_agent_call(name, fn, state)
+            logger.info("Planner step started round=%s step=%s", next_round, name)
+            try:
+                state = timed_agent_call(name, fn, state)
+            except Exception:
+                logger.exception("Planner step failed round=%s step=%s", next_round, name)
+                raise
             if abort_requested():
                 aborted = True
+            logger.info("Planner step completed round=%s step=%s", next_round, name)
             yield {
                 "type": "step_completed",
                 "step": name,
@@ -246,6 +276,13 @@ def run_planner_stream(
                 " Revise using optimization_hints and provide complete outputs for all specialists."
             )
             state.setdefault("conversation", []).append(("system_auto_feedback", state["feedback"]))
+            logger.warning(
+                "Planner auto-rerun triggered round=%s within_budget=%s missing_fields=%s reason=%s",
+                int(state.get("round_number", next_round)),
+                within_budget,
+                missing_fields,
+                state["feedback"],
+            )
             yield {
                 "type": "auto_rerun",
                 "round": int(state.get("round_number", next_round)),
@@ -259,10 +296,17 @@ def run_planner_stream(
         state["auto_rerun"] = False
         state["final_report"] = normalized
         state["report_markdown"] = markdown
+        logger.info(
+            "Planner run converged round=%s within_budget=%s report_keys=%s",
+            int(state.get("round_number", next_round)),
+            within_budget,
+            sorted(normalized.keys()) if isinstance(normalized, dict) else [],
+        )
         break
 
     state["_abort_run"] = False
     if aborted:
+        logger.warning("Planner run aborted round=%s", int(state.get("round_number", 0)))
         yield {
             "type": "aborted",
             "round": int(state.get("round_number", 0)),
@@ -273,6 +317,7 @@ def run_planner_stream(
         }
         return state
 
+    logger.info("Planner run completed round=%s", int(state.get("round_number", 0)))
     yield {
         "type": "completed",
         "round": int(state.get("round_number", 0)),

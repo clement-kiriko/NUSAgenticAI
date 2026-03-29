@@ -236,6 +236,7 @@ class TestBuildInitialState:
             "days": "3",
             "budget_sgd": "2000",
             "country": "Japan",
+            "city": "",
             "start_date": "2026-06-01",
             "dietary_restrictions": "vegetarian",
         }
@@ -286,6 +287,19 @@ class TestBuildInitialState:
         state = self.fn(self._requirements())
         speakers = [s for s, _ in state["conversation"]]
         assert "human_intake" in speakers
+
+    def test_city_is_preserved_when_provided(self):
+        state = self.fn(self._requirements(city="Tokyo"))
+        assert state["user_requirements"]["city"] == "Tokyo"
+        assert state["user_requirements"]["country"] == "Japan"
+
+    def test_location_preference_uses_city_and_country_when_city_present(self):
+        state = self.fn(self._requirements(city="Tokyo"))
+        assert state["user_requirements"]["location_preference"] == "Tokyo, Japan"
+
+    def test_location_preference_falls_back_to_country_when_city_missing(self):
+        state = self.fn(self._requirements(city=""))
+        assert state["user_requirements"]["location_preference"] == "Japan"
 
 
 class TestReportToMarkdown:

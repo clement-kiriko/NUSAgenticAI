@@ -11,10 +11,60 @@ function isBlank(value) {
   return String(value ?? "").trim() === "";
 }
 
-function isIsoDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+function parseDateToIso(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  function toValidIso(year, month, day) {
+    const normalizedYear = String(year).padStart(4, "0");
+    const normalizedMonth = String(month).padStart(2, "0");
+    const normalizedDay = String(day).padStart(2, "0");
+    const iso = `${normalizedYear}-${normalizedMonth}-${normalizedDay}`;
+
+    const parsed = new Date(
+      Number(normalizedYear),
+      Number(normalizedMonth) - 1,
+      Number(normalizedDay),
+    );
+
+    const isSameDate =
+      !Number.isNaN(parsed.getTime()) &&
+      parsed.getFullYear() === Number(normalizedYear) &&
+      parsed.getMonth() === Number(normalizedMonth) - 1 &&
+      parsed.getDate() === Number(normalizedDay);
+
+    return isSameDate ? iso : "";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return toValidIso(raw.slice(0, 4), raw.slice(5, 7), raw.slice(8, 10));
+  }
+
+  const parts = raw.match(/\d+/g) || [];
+  if (parts.length === 3) {
+    const [first, second, third] = parts;
+
+    if (first.length === 4) {
+      return toValidIso(first, second, third);
+    }
+
+    if (third.length === 4) {
+      return (
+        toValidIso(third, second, first) ||
+        toValidIso(third, first, second)
+      );
+    }
+  }
+
+  const digitsOnly = raw.replace(/\D/g, "");
+  if (digitsOnly.length === 8) {
+    return (
+      toValidIso(digitsOnly.slice(0, 4), digitsOnly.slice(4, 6), digitsOnly.slice(6, 8)) ||
+      toValidIso(digitsOnly.slice(4, 8), digitsOnly.slice(2, 4), digitsOnly.slice(0, 2))
+    );
+  }
+
+  return "";
 }
 
 export function getTodayLocalIso() {
@@ -26,11 +76,13 @@ export function getTodayLocalIso() {
 }
 
 export function normalizeTravelForm(form) {
+  const normalizedStartDate = parseDateToIso(form?.start_date);
   return {
     days: form?.days ?? "4",
     budget_sgd: form?.budget_sgd ?? "3000",
     country: form?.country ?? "",
-    start_date: form?.start_date ?? "",
+    city: form?.city ?? "",
+    start_date: normalizedStartDate,
     dietary_restrictions: form?.dietary_restrictions ?? "none",
   };
 }
@@ -40,6 +92,7 @@ export function validateTravelForm(form) {
   const days = String(form.days ?? "").trim();
   const budget = String(form.budget_sgd ?? "").trim();
   const country = String(form.country ?? "").trim();
+  const city = String(form.city ?? "").trim();
   const startDate = String(form.start_date ?? "").trim();
 
   if (isBlank(days)) {
@@ -69,23 +122,32 @@ export function validateTravelForm(form) {
     errors.country = "Country must be at least 2 characters.";
   }
 
+  if (city && city.length < 2) {
+    errors.city = "City must be at least 2 characters.";
+  }
+
   if (!startDate) {
     errors.start_date = "Select a travel start date.";
-  } else if (!isIsoDate(startDate)) {
-    errors.start_date = "Use a valid date in YYYY-MM-DD format.";
-  } else if (startDate < getTodayLocalIso()) {
-    errors.start_date = "Travel start date cannot be in the past.";
+  } else {
+    const normalizedStartDate = parseDateToIso(startDate);
+    if (!normalizedStartDate) {
+      errors.start_date = "Select a valid date from the calendar.";
+    } else if (normalizedStartDate < getTodayLocalIso()) {
+      errors.start_date = "Travel start date cannot be in the past.";
+    }
   }
 
   return errors;
 }
 
 export function buildTravelRequest(form) {
+  const normalizedStartDate = parseDateToIso(form.start_date);
   return {
     days: Number.parseInt(String(form.days).trim(), 10),
     budget_sgd: Number.parseFloat(String(form.budget_sgd).trim()),
     country: String(form.country ?? "").trim(),
-    start_date: String(form.start_date ?? "").trim(),
+    city: String(form.city ?? "").trim(),
+    start_date: normalizedStartDate,
     dietary_restrictions: String(form.dietary_restrictions ?? "").trim() || "none",
   };
 }

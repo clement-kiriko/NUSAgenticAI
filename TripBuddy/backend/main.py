@@ -10,11 +10,13 @@ from agents import (
     locations_agent,
     orchestrator_agent,
 )
+from logging_setup import configure_logging
 from monitoring import timed_agent_call
 from nodes import feedback_node, feedback_router, intake_node
 from state import TripState
 
 load_dotenv(override=True)
+configure_logging()
 
 
 def build_graph():

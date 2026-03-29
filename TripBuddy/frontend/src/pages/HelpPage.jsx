@@ -10,7 +10,7 @@ export function HelpPage() {
       <section className="panel help">
         <h2>Plan a Trip with few simple steps</h2>
         <ol>
-          <li>Fill in travel days, budget, country, start date, and dietary restrictions.</li>
+          <li>Fill in travel days, budget, country, optional city, start date, and dietary restrictions.</li>
           <li>Click Start Planning to trigger all agents.</li>
           <li>Watch live steps update as each specialist completes work.</li>
           <li>Use chat to request edits like cheaper hotels, different activities, or food changes.</li>

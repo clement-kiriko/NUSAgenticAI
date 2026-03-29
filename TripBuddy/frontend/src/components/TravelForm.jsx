@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DIETARY_OPTIONS, getTodayLocalIso } from "../utils/travelForm";
 
-const ALL_FIELDS = ["days", "budget_sgd", "country", "start_date", "dietary_restrictions"];
+const ALL_FIELDS = ["days", "budget_sgd", "country", "city", "start_date", "dietary_restrictions"];
 
 export function TravelForm({ form, updateFormField, validationErrors, loading, error, onStart }) {
   const [touched, setTouched] = useState({});
@@ -67,6 +67,16 @@ export function TravelForm({ form, updateFormField, validationErrors, loading, e
           aria-invalid={shouldShowError("country")}
         />
         {shouldShowError("country") && <span className="error field-error-text">{validationErrors.country}</span>}
+      </label>
+      <label className={shouldShowError("city") ? "field-error" : ""}>
+        City to Visit (Optional)
+        <input
+          value={form.city}
+          onChange={(e) => updateFormField("city", e.target.value)}
+          onBlur={() => markTouched("city")}
+          aria-invalid={shouldShowError("city")}
+        />
+        {shouldShowError("city") && <span className="error field-error-text">{validationErrors.city}</span>}
       </label>
       <label className={shouldShowError("start_date") ? "field-error" : ""}>
         Travel Start Date

@@ -55,6 +55,7 @@ def intake_node(state: dict) -> dict:
     days = _prompt_positive_int("How many travel days? ")
     budget_sgd = _prompt_positive_float("Total trip budget (SGD)? ")
     country = _prompt_non_empty("Country to visit? ")
+    city = input("City to visit? (optional): ").strip()
     start_date = _prompt_date("Travel start date (YYYY-MM-DD)? ")
     end_date = _compute_end_date(start_date, days)
     dietary_restrictions = input("Dietary restrictions? (enter 'none' if not applicable): ").strip() or "none"
@@ -62,7 +63,9 @@ def intake_node(state: dict) -> dict:
     requirements = {
         "days": days,
         "budget_sgd": budget_sgd,
-        "location_preference": country,
+        "country": country,
+        "city": city,
+        "location_preference": f"{city}, {country}" if city else country,
         "start_date": start_date,
         "end_date": end_date,
         "dietary_restrictions": dietary_restrictions,

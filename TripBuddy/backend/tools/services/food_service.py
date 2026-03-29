@@ -1,6 +1,9 @@
 import os
+import logging
 
 from tools.providers import geoapify_geocode, geoapify_places, nominatim_geocode, overpass_dining
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_overpass(elements: list[dict], limit: int) -> list[dict]:
@@ -55,27 +58,30 @@ def _parse_geoapify(features: list[dict], limit: int) -> list[dict]:
 
 
 def search_food_live(location: str, radius_m: int = 500, limit: int = 5) -> list[dict]:
+    logger.info("Food live search started location=%s radius_m=%s limit=%s", location, radius_m, limit)
     geo = nominatim_geocode(location)
     if not geo:
+        logger.warning("Food live search geocode failed location=%s", location)
         raise ValueError(f"Could not find location: {location}")
 
     lat, lon = geo["lat"], geo["lon"]
-    print(f"Geocoded '{location}' -> lat={lat}, lon={lon}")
+    logger.info("Food live search geocoded location=%s lat=%s lon=%s", location, lat, lon)
     elements = overpass_dining(lat=lat, lon=lon, radius_m=radius_m, limit=limit)
     overpass_results = _parse_overpass(elements, limit=limit)
     if overpass_results:
+        logger.info("Food live search completed via overpass location=%s results=%s", location, len(overpass_results))
         return overpass_results
 
-    print("No usable Overpass results. Falling back to Geoapify...")
+    logger.warning("Food live search falling back to Geoapify location=%s", location)
     key = os.getenv("GEOAPIFY_API_KEY", "").strip()
     if not key:
-        print("Geoapify fallback unavailable: GEOAPIFY_API_KEY is not set.")
+        logger.warning("Food live search Geoapify fallback unavailable location=%s reason=missing key", location)
         return []
 
     try:
         geoapify_geo = geoapify_geocode(location, api_key=key)
         if not geoapify_geo:
-            print(f"Geoapify fallback geocode failed for '{location}'.")
+            logger.warning("Food live search Geoapify geocode failed location=%s", location)
             return []
         features = geoapify_places(
             geoapify_geo["lon"],
@@ -86,8 +92,8 @@ def search_food_live(location: str, radius_m: int = 500, limit: int = 5) -> list
             radius_m=max(5000, radius_m * 8),
         )
         results = _parse_geoapify(features, limit=limit)
-        print(f"Geoapify fallback returned {len(results)} result(s).")
+        logger.info("Food live search completed via Geoapify fallback location=%s results=%s", location, len(results))
         return results
-    except Exception as exc:
-        print(f"Geoapify fallback failed: {exc}")
+    except Exception:
+        logger.exception("Food live search Geoapify fallback failed location=%s", location)
         return []
