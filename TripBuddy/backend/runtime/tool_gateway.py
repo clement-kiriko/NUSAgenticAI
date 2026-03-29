@@ -90,8 +90,31 @@ class ToolGateway:
                 result = timed_agent_call(f"tool:{tool_name}", spec.handler, *args, **kwargs)
         except Exception:
             logger.exception("Tool call failed agent=%s tool=%s", agent_name, tool_name, extra={"audit_id": audit_id, "run_id": run_id})
+            fallback_result = None
+            if spec.fallback_handler is None:
+                state.setdefault("tool_calls", []).append(
+                    build_tool_audit_entry(agent_name, tool_name, args, kwargs, audit_id=audit_id, run_id=run_id, error="tool execution failed")
+                )
+                record_monitoring_event(
+                    "tool_call_failed",
+                    audit_id=audit_id,
+                    run_id=run_id,
+                    agent_name=agent_name,
+                    tool_name=tool_name,
+                )
+                append_decision_trace(
+                    state,
+                    agent_name,
+                    f"Tool call failed for {tool_name}.",
+                    evidence={"tool": tool_name},
+                    outcome="failed",
+                    policy_tags=["governance", "accountability"],
+                )
+                raise
+            with bind_audit_context(audit_id=audit_id, run_id=run_id):
+                fallback_result = spec.fallback_handler(*args, **kwargs)
             state.setdefault("tool_calls", []).append(
-                build_tool_audit_entry(agent_name, tool_name, args, kwargs, audit_id=audit_id, run_id=run_id, error="tool execution failed")
+                build_tool_audit_entry(agent_name, tool_name, args, kwargs, audit_id=audit_id, run_id=run_id, result=fallback_result, error="tool execution failed")
             )
             record_monitoring_event(
                 "tool_call_failed",
@@ -103,12 +126,22 @@ class ToolGateway:
             append_decision_trace(
                 state,
                 agent_name,
-                f"Tool call failed for {tool_name}.",
+                f"Tool call failed for {tool_name}; fallback response applied.",
                 evidence={"tool": tool_name},
-                outcome="failed",
-                policy_tags=["governance", "accountability"],
+                outcome="fallback",
+                policy_tags=["governance", "accountability", "resilience"],
             )
-            raise
+            if callable(emit):
+                emit(
+                    {
+                        "type": "tool_completed",
+                        "agent": agent_name,
+                        "tool": tool_name,
+                        "message": f"{human_tool.capitalize()} unavailable; used fallback data.",
+                        "run_id": run_id,
+                    }
+                )
+            return fallback_result
         debug(f"{agent_name} -> {tool_name} args={list(args)} kwargs={kwargs}", prefix="TOOL")
         debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
         logger.info("Tool call completed agent=%s tool=%s", agent_name, tool_name, extra={"audit_id": audit_id, "run_id": run_id})

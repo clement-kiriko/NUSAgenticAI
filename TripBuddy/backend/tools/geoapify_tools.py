@@ -12,6 +12,93 @@ logger = logging.getLogger(__name__)
 _GEOAPIFY_ROUTING_DISTANCE_LIMIT_M = 10_000_000
 
 
+def _fallback_attractions(destination: str) -> List[Dict]:
+    defaults = [
+        {"name": "Central Heritage District", "type": "culture", "ticket_sgd": 25, "source": "mock"},
+        {"name": "City Observation Deck", "type": "scenic", "ticket_sgd": 40, "source": "mock"},
+        {"name": "Night Market Street", "type": "food-shopping", "ticket_sgd": 0, "source": "mock"},
+    ]
+    return [{**item, "destination": destination} for item in defaults]
+
+
+def _fallback_food(destination: str) -> List[Dict]:
+    return [
+        {
+            "name": "Local Hawker Classics",
+            "style": "local",
+            "cost_per_meal_sgd": 12,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Mid-range Bistro",
+            "style": "international",
+            "cost_per_meal_sgd": 28,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Diet-friendly Cafe",
+            "style": "healthy",
+            "cost_per_meal_sgd": 22,
+            "destination": destination,
+            "source": "mock",
+        },
+    ]
+
+
+def _fallback_accommodation(destination: str) -> List[Dict]:
+    return [
+        {
+            "name": "City Capsule Inn",
+            "type": "budget",
+            "nightly_rate_sgd": 60,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Riverside Hotel",
+            "type": "mid-range",
+            "nightly_rate_sgd": 145,
+            "destination": destination,
+            "source": "mock",
+        },
+        {
+            "name": "Skyline Suites",
+            "type": "premium",
+            "nightly_rate_sgd": 260,
+            "destination": destination,
+            "source": "mock",
+        },
+    ]
+
+
+def _fallback_web_search(query: str, limit: int = 5) -> List[Dict]:
+    return [
+        {"name": f"{query} - Top Pick 1", "snippet": "Highly rated by travelers", "source": "mock"},
+        {"name": f"{query} - Top Pick 2", "snippet": "Popular and centrally located", "source": "mock"},
+        {"name": f"{query} - Top Pick 3", "snippet": "Good value for budget travelers", "source": "mock"},
+    ][:limit]
+
+
+def _fallback_maps(origin: str, destination: str) -> Dict:
+    return {
+        "origin": origin,
+        "destination": destination,
+        "typical_transit_minutes": 35,
+        "typical_taxi_minutes": 20,
+        "source": "mock_maps",
+    }
+
+
+def _fallback_reviews(query: str, limit: int = 5) -> List[Dict]:
+    return [
+        {"place": f"{query} Spot A", "category": ["fallback"], "source": "mock_reviews"},
+        {"place": f"{query} Spot B", "category": ["fallback"], "source": "mock_reviews"},
+        {"place": f"{query} Spot C", "category": ["fallback"], "source": "mock_reviews"},
+    ][:limit]
+
+
 def _mask_api_key(url: str) -> str:
     parts = urlsplit(url)
     query = []
@@ -182,12 +269,7 @@ def tourist_attraction_api(destination: str) -> List[Dict]:
         except Exception:
             logger.exception("Tourist attraction lookup failed destination=%s", destination)
 
-    defaults = [
-        {"name": "Central Heritage District", "type": "culture", "ticket_sgd": 25, "source": "mock"},
-        {"name": "City Observation Deck", "type": "scenic", "ticket_sgd": 40, "source": "mock"},
-        {"name": "Night Market Street", "type": "food-shopping", "ticket_sgd": 0, "source": "mock"},
-    ]
-    return [{**item, "destination": destination} for item in defaults]
+    return _fallback_attractions(destination)
 
 
 def food_api(destination: str) -> List[Dict]:
@@ -225,29 +307,7 @@ def food_api(destination: str) -> List[Dict]:
         except Exception:
             logger.exception("Food catalog lookup failed destination=%s", destination)
 
-    return [
-        {
-            "name": "Local Hawker Classics",
-            "style": "local",
-            "cost_per_meal_sgd": 12,
-            "destination": destination,
-            "source": "mock",
-        },
-        {
-            "name": "Mid-range Bistro",
-            "style": "international",
-            "cost_per_meal_sgd": 28,
-            "destination": destination,
-            "source": "mock",
-        },
-        {
-            "name": "Diet-friendly Cafe",
-            "style": "healthy",
-            "cost_per_meal_sgd": 22,
-            "destination": destination,
-            "source": "mock",
-        },
-    ]
+    return _fallback_food(destination)
 
 
 def accomodation_api(destination: str) -> List[Dict]:
@@ -285,29 +345,7 @@ def accomodation_api(destination: str) -> List[Dict]:
         except Exception:
             logger.exception("Accommodation lookup failed destination=%s", destination)
 
-    return [
-        {
-            "name": "City Capsule Inn",
-            "type": "budget",
-            "nightly_rate_sgd": 60,
-            "destination": destination,
-            "source": "mock",
-        },
-        {
-            "name": "Riverside Hotel",
-            "type": "mid-range",
-            "nightly_rate_sgd": 145,
-            "destination": destination,
-            "source": "mock",
-        },
-        {
-            "name": "Skyline Suites",
-            "type": "premium",
-            "nightly_rate_sgd": 260,
-            "destination": destination,
-            "source": "mock",
-        },
-    ]
+    return _fallback_accommodation(destination)
 
 
 def web_search_api(query: str, limit: int = 5) -> List[Dict]:
@@ -338,11 +376,7 @@ def web_search_api(query: str, limit: int = 5) -> List[Dict]:
         except Exception:
             logger.exception("Web search lookup failed query=%s", query)
 
-    return [
-        {"name": f"{query} - Top Pick 1", "snippet": "Highly rated by travelers", "source": "mock"},
-        {"name": f"{query} - Top Pick 2", "snippet": "Popular and centrally located", "source": "mock"},
-        {"name": f"{query} - Top Pick 3", "snippet": "Good value for budget travelers", "source": "mock"},
-    ][:limit]
+    return _fallback_web_search(query, limit=limit)
 
 
 def maps_api(origin: str, destination: str) -> Dict:
@@ -424,13 +458,7 @@ def maps_api(origin: str, destination: str) -> Dict:
         except Exception:
             logger.exception("Maps lookup failed origin=%s destination=%s", origin, destination)
 
-    return {
-        "origin": origin,
-        "destination": destination,
-        "typical_transit_minutes": 35,
-        "typical_taxi_minutes": 20,
-        "source": "mock_maps",
-    }
+    return _fallback_maps(origin, destination)
 
 
 def reviews_api(query: str, limit: int = 5) -> List[Dict]:
@@ -480,8 +508,4 @@ def reviews_api(query: str, limit: int = 5) -> List[Dict]:
         except Exception:
             logger.exception("Reviews lookup failed query=%s", query)
 
-    return [
-        {"place": f"{query} Spot A", "category": ["fallback"], "source": "mock_reviews"},
-        {"place": f"{query} Spot B", "category": ["fallback"], "source": "mock_reviews"},
-        {"place": f"{query} Spot C", "category": ["fallback"], "source": "mock_reviews"},
-    ][:limit]
+    return _fallback_reviews(query, limit=limit)

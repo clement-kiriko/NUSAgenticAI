@@ -59,14 +59,22 @@ def _parse_geoapify(features: list[dict], limit: int) -> list[dict]:
 
 def search_food_live(location: str, radius_m: int = 500, limit: int = 5) -> list[dict]:
     logger.info("Food live search started location=%s radius_m=%s limit=%s", location, radius_m, limit)
-    geo = nominatim_geocode(location)
+    try:
+        geo = nominatim_geocode(location)
+    except Exception:
+        logger.exception("Food live search Nominatim geocode failed location=%s", location)
+        return []
     if not geo:
         logger.warning("Food live search geocode failed location=%s", location)
-        raise ValueError(f"Could not find location: {location}")
+        return []
 
     lat, lon = geo["lat"], geo["lon"]
     logger.info("Food live search geocoded location=%s lat=%s lon=%s", location, lat, lon)
-    elements = overpass_dining(lat=lat, lon=lon, radius_m=radius_m, limit=limit)
+    try:
+        elements = overpass_dining(lat=lat, lon=lon, radius_m=radius_m, limit=limit)
+    except Exception:
+        logger.exception("Food live search Overpass failed location=%s", location)
+        elements = []
     overpass_results = _parse_overpass(elements, limit=limit)
     if overpass_results:
         logger.info("Food live search completed via overpass location=%s results=%s", location, len(overpass_results))
