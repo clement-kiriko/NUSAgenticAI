@@ -1,5 +1,6 @@
 from prompts import role_prompt
 from agents.orchestrator import invoke_json, log_agent, recent_conversation
+from policy_engine import append_decision_trace
 from tools.security.guardrail import detect_prompt_injection
 
 
@@ -95,6 +96,18 @@ def budget_agent(state: dict) -> dict:
         _emit_progress(state, f"Projected total is within budget with SGD {max(0.0, total_budget - projected):.2f} buffer.")
 
     state["budget_plan"] = plan
+    append_decision_trace(
+        state,
+        "budget_agent",
+        "Checked projected spend against the user budget and refreshed optimization hints.",
+        evidence={
+            "projected_total_sgd": plan.get("projected_total_sgd"),
+            "within_budget": plan.get("within_budget"),
+            "buffer_sgd": plan.get("buffer_sgd"),
+        },
+        outcome="budget_plan_ready",
+        policy_tags=["assurance", "trust", "autonomy"],
+    )
     log_agent(
         "budget_agent",
         f"Projected total SGD: {plan.get('projected_total_sgd', 'N/A')}, within budget: {plan.get('within_budget', 'N/A')}",

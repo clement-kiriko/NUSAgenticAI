@@ -9,6 +9,7 @@ from monitoring.helpers import (
     observe_agent_latency,
     record_http_request,
     record_llm_token_usage,
+    record_monitoring_event,
     record_tool_call,
     timed_agent_call,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "record_http_metrics",
     "record_http_request",
     "record_llm_token_usage",
+    "record_monitoring_event",
     "record_tool_call",
     "timed_agent_call",
 ]

@@ -18,6 +18,7 @@ load_dotenv()
 
 import pytest
 from unittest.mock import patch, MagicMock
+import logging
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +228,39 @@ class TestShouldAutoRerun:
         assert should is True
 
 
+class TestAutoRerunContext:
+    def setup_method(self):
+        from planner import _auto_rerun_context
+        self.fn = _auto_rerun_context
+
+    def test_missing_fields_reason_is_not_budget_wording(self):
+        state = _minimal_state(
+            policy_evaluation={
+                "assurance": {"confidence_score": 88},
+                "autonomy": {"triggers": ["missing_fields"]},
+            }
+        )
+
+        context = self.fn(state, ["food.meal_plan"], True)
+
+        assert "missing_fields" in context["trigger_types"]
+        assert "budget_overrun" not in context["trigger_types"]
+        assert any("incomplete" in item for item in context["summary_parts"])
+
+    def test_low_assurance_reason_is_included(self):
+        state = _minimal_state(
+            policy_evaluation={
+                "assurance": {"confidence_score": 62},
+                "autonomy": {"triggers": ["low_assurance"]},
+            }
+        )
+
+        context = self.fn(state, [], True)
+
+        assert "low_assurance" in context["trigger_types"]
+        assert any("assurance confidence is low" in item for item in context["summary_parts"])
+
+
 class TestBuildInitialState:
     """Tests for planner.build_initial_state."""
 
@@ -422,6 +456,11 @@ class TestReportToMarkdown:
     def test_next_iteration_focus_rendered(self):
         result = self.fn({"next_iteration_focus": ["Confirm flights"]})
         assert "## Next Iteration Focus" in result
+
+    def test_policy_sections_rendered(self):
+        result = self.fn({"assurance": {"confidence_score": 84}, "trust": {"score": 78}})
+        assert "## Assurance" in result
+        assert "## Trust" in result
 
 
 # ===========================================================================
@@ -691,3 +730,206 @@ class TestToolRegistry:
         catalog = self.serialize(self.registry, "locations_agent")
         caps = {cap for row in catalog for cap in row["capabilities"]}
         assert "attraction_search" in caps
+
+
+class TestPolicyEngine:
+    def test_initialize_governance_state_sets_metadata(self):
+        from policy_engine import initialize_governance_state
+
+        state = _minimal_state()
+        initialize_governance_state(state)
+
+        assert "governance_metadata" in state
+        assert state["governance_metadata"]["policy_version"]
+        assert state["governance_metadata"]["audit_id"]
+        assert state["governance_metadata"]["current_run_id"] == ""
+
+    def test_evaluate_state_returns_assurance_and_fairness(self):
+        from policy_engine import evaluate_state, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={"selected_option": {"route": "SIN-TYO"}, "weather_notes": "Clear", "estimated_total_sgd": 500},
+            locations_plan={"top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify"}], "estimated_total_sgd": 50},
+            food_plan={"meal_plan": "Vegetarian-friendly meals", "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify"}, {"name": "Market B", "style": "local", "source": "mock"}], "estimated_total_sgd": 120},
+            accomodations_plan={"selected_stay": {"name": "Inn", "source": "geoapify"}, "estimated_total_sgd": 300},
+            budget_plan={"projected_total_sgd": 970, "within_budget": True, "buffer_sgd": 530},
+            report={"overview": "Trip", "recommendations": ["A"], "budget_summary": "B"},
+            tool_calls=[{"tool": "FlightAPI"}, {"tool": "WeatherAPI"}, {"tool": "TouristAttractionAPI"}],
+        )
+        state["user_requirements"]["dietary_restrictions"] = "vegetarian"
+        initialize_governance_state(state)
+
+        evaluation = evaluate_state(state)
+
+        assert "assurance" in evaluation
+        assert "fairness" in evaluation
+        assert evaluation["assurance"]["confidence_score"] >= 0
+        assert evaluation["trust"]["score"] >= 0
+
+    def test_enrich_report_adds_policy_sections(self):
+        from policy_engine import enrich_report, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={"selected_option": {"route": "SIN-TYO"}, "weather_notes": "Clear", "estimated_total_sgd": 500},
+            locations_plan={"top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify"}], "estimated_total_sgd": 50},
+            food_plan={"meal_plan": "Meals", "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify"}], "estimated_total_sgd": 120},
+            accomodations_plan={"selected_stay": {"name": "Inn", "source": "geoapify"}, "estimated_total_sgd": 300},
+            budget_plan={"projected_total_sgd": 970, "within_budget": True, "buffer_sgd": 530},
+            report={"overview": "Trip", "recommendations": ["A"], "budget_summary": "B"},
+            tool_calls=[{"tool": "FlightAPI"}],
+        )
+        initialize_governance_state(state)
+
+        enriched = enrich_report(state, state["report"])
+
+        assert "governance" in enriched
+        assert "assurance" in enriched
+        assert "imda_alignment" in enriched
+        assert "decision_trace_full" in enriched
+
+    def test_enrich_report_summarizes_trace_but_keeps_full_trace(self):
+        from policy_engine import append_decision_trace, enrich_report, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={"selected_option": {"route": "SIN-TYO"}, "weather_notes": "Clear", "estimated_total_sgd": 500},
+            locations_plan={"top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify"}], "estimated_total_sgd": 50},
+            food_plan={"meal_plan": "Meals", "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify"}], "estimated_total_sgd": 120},
+            accomodations_plan={"selected_stay": {"name": "Inn", "source": "geoapify"}, "estimated_total_sgd": 300},
+            budget_plan={"projected_total_sgd": 970, "within_budget": True, "buffer_sgd": 530},
+            report={"overview": "Trip", "recommendations": ["A"], "budget_summary": "B"},
+            tool_calls=[{"tool": "FlightAPI"}],
+        )
+        initialize_governance_state(state)
+        append_decision_trace(state, "flight_agent", "Used governed tool FlightAPI.", outcome="success")
+        append_decision_trace(state, "flight_agent", "Selected a flight strategy using flight and weather evidence.", outcome="flight_plan_ready")
+
+        enriched = enrich_report(state, state["report"])
+
+        assert len(enriched["decision_trace_full"]) == 2
+        assert len(enriched["decision_trace"]) == 1
+        assert enriched["decision_trace"][0]["stage"] == "Flights"
+
+    def test_build_tool_audit_entry_carries_audit_id(self):
+        from policy_engine import build_tool_audit_entry
+
+        entry = build_tool_audit_entry(
+            "flight_agent",
+            "FlightAPI",
+            ["SIN", "Tokyo"],
+            {},
+            audit_id="audit-123",
+            run_id="run-123",
+            result=[{"route": "SIN-TYO"}],
+        )
+
+        assert entry["audit_id"] == "audit-123"
+        assert entry["run_id"] == "run-123"
+        assert entry["tool"] == "FlightAPI"
+
+    def test_start_new_run_updates_current_run_and_history(self):
+        from policy_engine import get_run_id, initialize_governance_state, start_new_run
+
+        state = _minimal_state()
+        initialize_governance_state(state)
+
+        run_id = start_new_run(state, "start")
+
+        assert get_run_id(state) == run_id
+        assert state["governance_metadata"]["run_history"][-1]["run_id"] == run_id
+        assert state["governance_metadata"]["run_history"][-1]["mode"] == "start"
+
+    def test_coercive_language_detail_matches_failed_status(self):
+        from policy_engine import evaluate_state, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={"selected_option": {"route": "SIN-TYO"}, "weather_notes": "Clear", "estimated_total_sgd": 500},
+            locations_plan={"top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify"}], "estimated_total_sgd": 50},
+            food_plan={"meal_plan": "Meals", "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify"}], "estimated_total_sgd": 120},
+            accomodations_plan={"selected_stay": {"name": "Inn", "source": "geoapify"}, "estimated_total_sgd": 300},
+            budget_plan={"projected_total_sgd": 970, "within_budget": True, "buffer_sgd": 530},
+            report={"overview": "Book now for the best trip."},
+            tool_calls=[{"tool": "FlightAPI"}],
+        )
+        initialize_governance_state(state)
+
+        evaluation = evaluate_state(state)
+        coercive_check = next(item for item in evaluation["ethical_checks"]["checks"] if item["name"] == "coercive_language_absent")
+
+        assert coercive_check["passed"] is False
+        assert "detected" in coercive_check["detail"].lower()
+        assert "book now" in coercive_check["detail"].lower()
+
+
+class TestApiServerHelpers:
+    def test_audit_payload_contains_traceability_bundle(self):
+        from api_server import _audit_payload, SESSION_RUNTIME
+        from policy_engine import initialize_governance_state
+
+        session_id = "session-123"
+        state = _minimal_state(
+            tool_calls=[{"audit_id": "audit-123", "tool": "FlightAPI"}],
+            decision_trace=[{"actor": "flight_agent", "summary": "Picked flight"}],
+            policy_evaluation={"assurance": {"confidence_score": 80}},
+            final_report={"overview": "Trip"},
+            flight_plan={"selected_option": "SQ1"},
+            locations_plan={},
+            food_plan={},
+            accomodations_plan={},
+            budget_plan={},
+        )
+        initialize_governance_state(state)
+        SESSION_RUNTIME[session_id] = {
+            "events": [{"type": "run_started"}],
+            "running": False,
+            "abort_requested": False,
+            "lock": __import__("threading").Lock(),
+        }
+
+        payload = _audit_payload(session_id, state)
+
+        assert payload["session_id"] == session_id
+        assert payload["audit_id"] == state["governance_metadata"]["audit_id"]
+        assert "run_history" in payload
+        assert payload["tool_calls"] == state["tool_calls"]
+        assert payload["decision_trace_full"] == state["decision_trace"]
+        assert payload["policy_evaluation"] == state["policy_evaluation"]
+        assert payload["final_report"] == state["final_report"]
+
+
+class TestLoggingSetup:
+    def test_audit_formatter_omits_empty_audit_segment(self):
+        from logging_setup import AuditAwareFormatter
+
+        formatter = AuditAwareFormatter("%(levelname)s %(name)s%(audit_segment)s: %(message)s")
+        record = logging.LogRecord("test.logger", logging.INFO, __file__, 1, "hello", (), None)
+        record.audit_id = ""
+
+        rendered = formatter.format(record)
+
+        assert "[audit_id=" not in rendered
+
+    def test_audit_formatter_includes_real_audit_id(self):
+        from logging_setup import AuditAwareFormatter
+
+        formatter = AuditAwareFormatter("%(levelname)s %(name)s%(audit_segment)s: %(message)s")
+        record = logging.LogRecord("test.logger", logging.INFO, __file__, 1, "hello", (), None)
+        record.audit_id = "audit-123"
+        record.run_id = "run-123"
+
+        rendered = formatter.format(record)
+
+        assert "audit_id=audit-123" in rendered
+        assert "run_id=run-123" in rendered
+
+    def test_logging_filter_uses_contextvars_when_extra_missing(self):
+        from logging_context import bind_audit_context
+        from logging_setup import AuditIdFilter
+
+        record = logging.LogRecord("tools.aviationstack_api", logging.INFO, __file__, 1, "hello", (), None)
+        filt = AuditIdFilter()
+
+        with bind_audit_context(audit_id="audit-ctx", run_id="run-ctx"):
+            filt.filter(record)
+
+        assert record.audit_id == "audit-ctx"
+        assert record.run_id == "run-ctx"

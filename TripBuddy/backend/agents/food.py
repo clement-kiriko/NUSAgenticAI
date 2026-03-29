@@ -7,6 +7,7 @@ from agents.orchestrator import (
     log_agent,
     recent_conversation,
 )
+from policy_engine import append_decision_trace
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -90,6 +91,17 @@ def food_agent(state: dict) -> dict:
         }
 
     state["food_plan"] = plan
+    append_decision_trace(
+        state,
+        "food_agent",
+        "Generated the food plan with dietary and live venue checks.",
+        evidence={
+            "top_food_spots": len(plan.get("top_food_spots", [])),
+            "estimated_total_sgd": plan.get("estimated_total_sgd"),
+        },
+        outcome="food_plan_ready",
+        policy_tags=["fairness", "ethics"],
+    )
     log_agent(
         "food_agent",
         f"Estimated food budget SGD: {plan.get('estimated_total_sgd', 'N/A')}",

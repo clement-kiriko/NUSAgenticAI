@@ -6,6 +6,15 @@ import { buildTravelRequest, normalizeTravelForm, validateTravelForm } from "../
 
 const HOME_STATE_KEY = "tripbuddy_home_state_v1";
 
+function summarizeAutoRerun(triggers = []) {
+  const values = Array.isArray(triggers) ? triggers : [];
+  if (values.includes("budget_overrun")) return "to improve budget fit";
+  if (values.includes("missing_fields")) return "to complete missing plan details";
+  if (values.includes("low_assurance")) return "to improve confidence and evidence support";
+  if (values.includes("ethical_review")) return "to resolve policy review issues";
+  return "for additional optimization";
+}
+
 function loadSavedState() {
   try {
     const raw = sessionStorage.getItem(HOME_STATE_KEY);
@@ -41,7 +50,7 @@ export function usePlannerSession() {
   const reconnectTimerRef = useRef(null);
   const suppressReconnectRef = useRef(false);
   const pendingRefineRef = useRef(false);
-  const runStatsRef = useRef({ rounds: 0, hadAutoRerun: false });
+  const runStatsRef = useRef({ rounds: 0, hadAutoRerun: false, rerunTriggers: [] });
 
   useEffect(() => {
     sessionStorage.setItem(HOME_STATE_KEY, JSON.stringify({ form, sessionId, events, messages, report }));
@@ -146,6 +155,9 @@ export function usePlannerSession() {
       runStatsRef.current = {
         rounds: runRounds,
         hadAutoRerun: activeRunEvents.some((item) => item.type === "auto_rerun"),
+        rerunTriggers: activeRunEvents
+          .filter((item) => item.type === "auto_rerun")
+          .flatMap((item) => item.trigger_types || []),
       };
       setEvents(snapshotEvents.map((e) => ({ type: e.type, payload: e })));
       if (event.report) {
@@ -164,7 +176,7 @@ export function usePlannerSession() {
     setEvents((prev) => [...prev, { type, payload: event }].slice(-300));
     setCurrentStatus(eventToStatus(event));
     if (type === "run_started") {
-      runStatsRef.current = { rounds: 0, hadAutoRerun: false };
+      runStatsRef.current = { rounds: 0, hadAutoRerun: false, rerunTriggers: [] };
     }
     if (type === "round_started") {
       runStatsRef.current = {
@@ -176,6 +188,7 @@ export function usePlannerSession() {
       runStatsRef.current = {
         ...runStatsRef.current,
         hadAutoRerun: true,
+        rerunTriggers: [...runStatsRef.current.rerunTriggers, ...(event.trigger_types || [])],
       };
     }
     if (type === "run_started" || type === "round_started" || type === "step_started" || type === "auto_rerun") {
@@ -189,11 +202,12 @@ export function usePlannerSession() {
       if (type === "completed") {
         const totalPasses = Math.max(Number(event.round || 1), 1);
         const passLabel = totalPasses > 1 ? "passes" : "pass";
+        const rerunSummary = summarizeAutoRerun(runStatsRef.current.rerunTriggers);
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            text: `Finalized after ${totalPasses} total ${passLabel}${runStatsRef.current.hadAutoRerun ? " Current run needed extra optimization for better budget fit." : "."}`,
+            text: `Finalized after ${totalPasses} total ${passLabel}${runStatsRef.current.hadAutoRerun ? ` Current run needed extra optimization ${rerunSummary}.` : "."}`,
           },
         ]);
       }

@@ -7,6 +7,7 @@ from agents.orchestrator import (
     log_agent,
     recent_conversation,
 )
+from policy_engine import append_decision_trace
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -84,6 +85,17 @@ def locations_agent(state: dict) -> dict:
         }
 
     state["locations_plan"] = plan
+    append_decision_trace(
+        state,
+        "locations_agent",
+        "Built the attraction shortlist and neighborhood strategy.",
+        evidence={
+            "selected_attractions": len(plan.get("top_attractions", [])),
+            "estimated_total_sgd": plan.get("estimated_total_sgd"),
+        },
+        outcome="locations_plan_ready",
+        policy_tags=["fairness", "trust"],
+    )
     log_agent(
         "locations_agent",
         f"Selected attractions count: {len(plan.get('top_attractions', []))}",

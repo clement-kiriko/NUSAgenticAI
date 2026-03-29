@@ -1,3 +1,5 @@
+import json
+import logging
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
@@ -9,6 +11,8 @@ from monitoring.metrics import (
     HTTP_REQUESTS_TOTAL,
     LLM_TOKENS_TOTAL,
 )
+
+monitoring_logger = logging.getLogger("monitoring.events")
 
 
 @contextmanager
@@ -27,6 +31,14 @@ def timed_agent_call(agent_name: str, fn: Callable[..., Any], *args, **kwargs):
 
 def record_tool_call(agent_name: str, tool_name: str) -> None:
     AGENT_TOOL_CALLS.labels(agent_name=agent_name, tool_name=tool_name).inc()
+
+
+def record_monitoring_event(event_name: str, *, audit_id: str = "-", run_id: str = "-", **fields: Any) -> None:
+    payload = {"event": event_name, "audit_id": audit_id, "run_id": run_id, **fields}
+    monitoring_logger.info(
+        json.dumps(payload, ensure_ascii=True, default=str),
+        extra={"audit_id": audit_id, "run_id": run_id},
+    )
 
 
 def record_http_request(method: str, path: str, status_code: str, duration_seconds: float) -> None:

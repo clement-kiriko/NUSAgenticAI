@@ -229,6 +229,99 @@ button:disabled {
   font-weight: 700;
 }
 
+.good {
+  color: #1f6a51;
+}
+
+.warn {
+  color: #8a4d1c;
+}
+
+.trace-toggle-wrap {
+  margin-top: 12px;
+}
+
+.trace-toggle-btn {
+  background: #edf4f1;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.trace-details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.summary-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.timeline-list li {
+  line-height: 1.45;
+}
+
+.policy-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.summary-chip,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f5f8f6;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.status-pill.good {
+  border-color: #9cc7b8;
+  background: #e9f5f0;
+}
+
+.status-pill.warn {
+  border-color: #e1bc98;
+  background: #fff4ea;
+}
+
+.audit-panel {
+  margin-top: 16px;
+}
+
+.audit-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.audit-panel-head h2 {
+  margin: 0;
+}
+
+.audit-detail-stack {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.audit-detail-block {
+  margin: 0;
+}
+
 .report-text-block {
   display: grid;
   gap: 8px;
@@ -318,5 +411,10 @@ button:disabled {
 
   .steps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .audit-panel-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

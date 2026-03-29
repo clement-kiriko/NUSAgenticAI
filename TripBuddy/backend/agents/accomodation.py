@@ -7,6 +7,7 @@ from agents.orchestrator import (
     log_agent,
     recent_conversation,
 )
+from policy_engine import append_decision_trace
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -94,6 +95,17 @@ def accomodations_agent(state: dict) -> dict:
         }
 
     state["accomodations_plan"] = plan
+    append_decision_trace(
+        state,
+        "accomodations_agent",
+        "Selected an accommodation option and area trade-offs.",
+        evidence={
+            "estimated_total_sgd": plan.get("estimated_total_sgd"),
+            "has_selected_stay": bool(plan.get("selected_stay")),
+        },
+        outcome="accommodation_plan_ready",
+        policy_tags=["trust", "assurance"],
+    )
     log_agent(
         "accomodations_agent",
         f"Estimated accommodation total SGD: {plan.get('estimated_total_sgd', 'N/A')}",

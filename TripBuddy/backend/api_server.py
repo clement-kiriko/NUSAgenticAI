@@ -14,8 +14,9 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 
 from logging_setup import configure_logging
-from monitoring import record_http_metrics, timed_agent_call
+from monitoring import record_http_metrics, record_monitoring_event, timed_agent_call
 from planner import as_sse_event, build_initial_state, run_planner_stream
+from policy_engine import get_audit_id, get_run_id, start_new_run
 
 load_dotenv(override=True)
 configure_logging()
@@ -77,7 +78,36 @@ def _runtime_snapshot(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
         "session_id": session_id,
         "events": events,
         "running": running,
+        "run_id": get_run_id(state),
         "report": state.get("final_report", state.get("report")),
+    }
+
+
+def _audit_payload(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    runtime = _ensure_runtime(session_id)
+    lock = runtime["lock"]
+    with lock:
+        events = list(runtime.get("events", []))
+        running = bool(runtime.get("running", False))
+    return {
+        "session_id": session_id,
+        "audit_id": get_audit_id(state),
+        "run_id": get_run_id(state),
+        "running": running,
+        "events": events,
+        "tool_calls": state.get("tool_calls", []),
+        "decision_trace_full": state.get("decision_trace", []),
+        "policy_evaluation": state.get("policy_evaluation", {}),
+        "specialist_plans": {
+            "flight_plan": state.get("flight_plan", {}),
+            "locations_plan": state.get("locations_plan", {}),
+            "food_plan": state.get("food_plan", {}),
+            "accomodations_plan": state.get("accomodations_plan", {}),
+            "budget_plan": state.get("budget_plan", {}),
+        },
+        "final_report": state.get("final_report", state.get("report")),
+        "governance_metadata": state.get("governance_metadata", {}),
+        "run_history": state.get("governance_metadata", {}).get("run_history", []),
     }
 
 
@@ -96,24 +126,27 @@ def _start_planner_run(session_id: str, feedback: str, mode: str) -> tuple[bool,
         runtime["running"] = True
         runtime["abort_requested"] = False
         state["_abort_run"] = False
+    run_id = start_new_run(state, mode)
 
     # Route in-agent/tool progress events into shared runtime history.
     state["_emit_event"] = lambda event: _append_runtime_event(session_id, event)
-    _append_runtime_event(session_id, {"type": "run_started", "mode": mode})
-    logger.info("Planner run accepted session_id=%s mode=%s", session_id, mode)
+    _append_runtime_event(session_id, {"type": "run_started", "mode": mode, "run_id": run_id})
+    logger.info("Planner run accepted session_id=%s mode=%s", session_id, mode, extra={"audit_id": get_audit_id(state), "run_id": run_id})
+    record_monitoring_event("session_run_started", audit_id=get_audit_id(state), run_id=run_id, session_id=session_id, mode=mode)
 
     def runner() -> None:
         try:
             for event in run_planner_stream(state, feedback=feedback):
                 _append_runtime_event(session_id, event)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Planner background run failed session_id=%s mode=%s", session_id, mode)
+            logger.exception("Planner background run failed session_id=%s mode=%s", session_id, mode, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
             _append_runtime_event(session_id, {"type": "error", "message": str(exc)})
         finally:
             with lock:
                 runtime["running"] = False
-            _append_runtime_event(session_id, {"type": "run_finished", "mode": mode})
-            logger.info("Planner run finished session_id=%s mode=%s", session_id, mode)
+            _append_runtime_event(session_id, {"type": "run_finished", "mode": mode, "run_id": get_run_id(state)})
+            logger.info("Planner run finished session_id=%s mode=%s", session_id, mode, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+            record_monitoring_event("session_run_finished", audit_id=get_audit_id(state), run_id=get_run_id(state), session_id=session_id, mode=mode)
 
     threading.Thread(target=runner, daemon=True).start()
     return True, "started"
@@ -148,12 +181,22 @@ def create_session(req: PlanRequest) -> Dict[str, str]:
     session_id = str(uuid.uuid4())
     SESSIONS[session_id] = build_initial_state(req.model_dump())
     SESSION_RUNTIME[session_id] = _new_runtime()
+    audit_id = get_audit_id(SESSIONS[session_id])
     logger.info(
         "Session created session_id=%s country=%s city=%s days=%s",
         session_id,
         req.country,
         req.city,
         req.days,
+        extra={"audit_id": audit_id},
+    )
+    record_monitoring_event(
+        "session_created",
+        audit_id=audit_id,
+        session_id=session_id,
+        country=req.country,
+        city=req.city,
+        days=req.days,
     )
     return {"session_id": session_id}
 
@@ -166,6 +209,16 @@ def session_snapshot(session_id: str) -> Dict[str, Any]:
     return _runtime_snapshot(session_id, state)
 
 
+@app.get("/api/session/{session_id}/audit")
+def session_audit(session_id: str) -> Dict[str, Any]:
+    state = SESSIONS.get(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Unknown session_id")
+    logger.info("Audit export requested session_id=%s", session_id, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+    record_monitoring_event("session_audit_exported", audit_id=get_audit_id(state), run_id=get_run_id(state), session_id=session_id)
+    return _audit_payload(session_id, state)
+
+
 @app.post("/api/session/{session_id}/plan")
 def plan_once(session_id: str, body: RefineRequest | None = None) -> JSONResponse:
     state = SESSIONS.get(session_id)
@@ -173,7 +226,12 @@ def plan_once(session_id: str, body: RefineRequest | None = None) -> JSONRespons
         raise HTTPException(status_code=404, detail="Unknown session_id")
 
     feedback = body.message if body else ""
-    logger.info("Plan once requested session_id=%s feedback_present=%s", session_id, bool(feedback.strip()))
+    logger.info(
+        "Plan once requested session_id=%s feedback_present=%s",
+        session_id,
+        bool(feedback.strip()),
+        extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+    )
     events = timed_agent_call("planner_run", list, run_planner_stream(state, feedback=feedback))
     final = events[-1] if events else {}
     return JSONResponse({"events": events, "result": final})
@@ -190,7 +248,8 @@ def stop_session_run(session_id: str) -> Dict[str, Any]:
     lock = runtime["lock"]
     with lock:
         runtime["abort_requested"] = True
-    logger.info("Stop requested session_id=%s", session_id)
+    logger.info("Stop requested session_id=%s", session_id, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+    record_monitoring_event("session_stop_requested", audit_id=get_audit_id(state), run_id=get_run_id(state), session_id=session_id)
     return {"ok": True, "session_id": session_id, "message": "Stop requested."}
 
 
@@ -201,7 +260,12 @@ async def plan_stream(session_id: str, body: RefineRequest | None = None) -> Str
         raise HTTPException(status_code=404, detail="Unknown session_id")
 
     feedback = body.message if body else ""
-    logger.info("SSE plan stream requested session_id=%s feedback_present=%s", session_id, bool(feedback.strip()))
+    logger.info(
+        "SSE plan stream requested session_id=%s feedback_present=%s",
+        session_id,
+        bool(feedback.strip()),
+        extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+    )
 
     event_queue: queue.Queue[Dict[str, Any]] = queue.Queue()
 
@@ -215,7 +279,7 @@ async def plan_stream(session_id: str, body: RefineRequest | None = None) -> Str
             for event in run_planner_stream(state, feedback=feedback):
                 event_queue.put(event)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("SSE planner stream failed session_id=%s", session_id)
+            logger.exception("SSE planner stream failed session_id=%s", session_id, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
             event_queue.put({"type": "error", "message": str(exc)})
         finally:
             event_queue.put({"type": "__stream_done__"})
@@ -334,10 +398,10 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         if tail_task and not tail_task.done():
             tail_task.cancel()
-        logger.info("WebSocket disconnected session_id=%s", session_id)
+        logger.info("WebSocket disconnected session_id=%s", session_id, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
         return
     except Exception as exc:  # noqa: BLE001
         if tail_task and not tail_task.done():
             tail_task.cancel()
-        logger.exception("WebSocket session failed session_id=%s", session_id)
+        logger.exception("WebSocket session failed session_id=%s", session_id, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
         await safe_send({"type": "error", "message": str(exc)})

@@ -1,5 +1,6 @@
 import json
 
+from policy_engine import append_decision_trace
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
 
@@ -90,6 +91,17 @@ def flight_agent(state: dict) -> dict:
         }
 
     state["flight_plan"] = plan
+    append_decision_trace(
+        state,
+        "flight_agent",
+        "Selected a flight strategy using flight and weather evidence.",
+        evidence={
+            "estimated_total_sgd": plan.get("estimated_total_sgd"),
+            "has_selected_option": bool(plan.get("selected_option")),
+        },
+        outcome="flight_plan_ready",
+        policy_tags=["trust", "assurance"],
+    )
     log_agent(
         "flight_agent",
         f"Proposed flight cost SGD: {plan.get('estimated_total_sgd', 'N/A')}",

@@ -13,7 +13,8 @@ from agents import (
     locations_agent,
     orchestrator_agent,
 )
-from monitoring import timed_agent_call
+from monitoring import record_monitoring_event, timed_agent_call
+from policy_engine import get_audit_id, get_run_id, initialize_governance_state
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def build_initial_state(requirements: Dict[str, Any]) -> Dict[str, Any]:
         "end_date": _compute_end_date(str(requirements["start_date"]), int(requirements["days"])),
         "dietary_restrictions": str(requirements.get("dietary_restrictions") or "none").strip() or "none",
     }
-    return {
+    state = {
         "user_requirements": req,
         "feedback": "",
         "satisfied": False,
@@ -114,8 +115,11 @@ def build_initial_state(requirements: Dict[str, Any]) -> Dict[str, Any]:
         "max_rounds": 3,
         "optimization_hints": {},
         "tool_calls": [],
+        "decision_trace": [],
         "conversation": [("human_intake", req)],
     }
+    initialize_governance_state(state)
+    return state
 
 
 def _clean_extracted_city(value: str) -> str:
@@ -254,6 +258,7 @@ def _apply_feedback_updates(state: Dict[str, Any], feedback: str) -> None:
         req.get("city", ""),
         req.get("requested_cities", []),
         req["location_preference"],
+        extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
     )
 
 
@@ -312,10 +317,62 @@ def _missing_critical_fields(state: Dict[str, Any]) -> list[str]:
 def _should_auto_rerun(state: Dict[str, Any]) -> tuple[bool, list[str], bool]:
     within_budget = bool(state.get("budget_plan", {}).get("within_budget", False))
     missing_fields = _missing_critical_fields(state)
+    policy_evaluation = state.get("policy_evaluation", {})
+    autonomy = policy_evaluation.get("autonomy", {})
+    assurance = policy_evaluation.get("assurance", {})
+    ethics = policy_evaluation.get("ethical_checks", {})
     round_number = int(state.get("round_number", 1))
     max_rounds = int(state.get("max_rounds", 3))
-    should_retry = (round_number < max_rounds) and ((not within_budget) or bool(missing_fields))
+    policy_risk = (
+        autonomy.get("next_action") == "rerun"
+        or float(assurance.get("confidence_score", 100)) < 70
+        or ethics.get("status") == "review"
+    )
+    should_retry = (round_number < max_rounds) and ((not within_budget) or bool(missing_fields) or policy_risk)
     return should_retry, missing_fields, within_budget
+
+
+def _auto_rerun_context(state: Dict[str, Any], missing_fields: list[str], within_budget: bool) -> Dict[str, Any]:
+    policy_evaluation = state.get("policy_evaluation", {})
+    assurance_score = float(policy_evaluation.get("assurance", {}).get("confidence_score", 100))
+    autonomy_triggers = list(policy_evaluation.get("autonomy", {}).get("triggers", []))
+
+    trigger_types: list[str] = []
+    summaries: list[str] = []
+
+    if not within_budget:
+        trigger_types.append("budget_overrun")
+        summaries.append("current plan exceeds budget")
+    if missing_fields:
+        trigger_types.append("missing_fields")
+        summaries.append("some required plan fields are incomplete")
+    if assurance_score < 70:
+        trigger_types.append("low_assurance")
+        summaries.append(f"assurance confidence is low ({assurance_score:.1f}/100)")
+    if "ethical_review" in autonomy_triggers:
+        trigger_types.append("ethical_review")
+        summaries.append("an ethical review check was triggered")
+
+    extra_triggers = [trigger for trigger in autonomy_triggers if trigger not in trigger_types]
+    for trigger in extra_triggers:
+        trigger_types.append(trigger)
+        summaries.append(f"policy trigger active: {trigger.replace('_', ' ')}")
+
+    if not summaries:
+        summaries.append("additional optimization is needed")
+
+    feedback = (
+        "Auto-rerun triggered because "
+        + "; ".join(summaries)
+        + ". Revise using optimization_hints and provide complete outputs for all specialists."
+    )
+    return {
+        "trigger_types": trigger_types,
+        "summary_parts": summaries,
+        "assurance_score": assurance_score,
+        "autonomy_triggers": autonomy_triggers,
+        "feedback": feedback,
+    }
 
 
 def _normalize_json(value: Any) -> Any:
@@ -354,7 +411,22 @@ def report_to_markdown(report: Dict[str, Any]) -> str:
             return
         lines.append(f"{prefix}- {value}")
 
-    for key in ("recommendations", "budget_summary", "risks", "next_iteration_focus"):
+    for key in (
+        "recommendations",
+        "budget_summary",
+        "risks",
+        "next_iteration_focus",
+        "governance",
+        "accountability",
+        "decision_trace",
+        "explainability",
+        "assurance",
+        "trust",
+        "fairness",
+        "ethical_checks",
+        "autonomy",
+        "imda_alignment",
+    ):
         section = report.get(key)
         if section is None:
             continue
@@ -376,7 +448,12 @@ def run_planner_stream(
         state["feedback"] = feedback.strip()
         _apply_feedback_updates(state, state["feedback"])
         state.setdefault("conversation", []).append(("human_feedback", state["feedback"]))
-        logger.info("Planner feedback received round=%s feedback=%s", state.get("round_number", 0), feedback.strip())
+        logger.info(
+            "Planner feedback received round=%s feedback=%s",
+            state.get("round_number", 0),
+            feedback.strip(),
+            extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+        )
 
     max_rounds = int(state.get("max_rounds", 3))
     aborted = False
@@ -386,6 +463,14 @@ def run_planner_stream(
         state.get("user_requirements", {}).get("start_date"),
         state.get("user_requirements", {}).get("end_date"),
         max_rounds,
+        extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+    )
+    record_monitoring_event(
+        "planner_run_started",
+        audit_id=get_audit_id(state),
+        run_id=get_run_id(state),
+        destination=state.get("user_requirements", {}).get("location_preference"),
+        max_rounds=max_rounds,
     )
     step_start_msg = {
         "orchestrator": "Setting planning strategy for this round.",
@@ -411,8 +496,13 @@ def run_planner_stream(
             break
 
         next_round = int(state.get("round_number", 0)) + 1
-        logger.info("Planner round started round=%s max_rounds=%s", next_round, max_rounds)
-        yield {"type": "round_started", "round": next_round, "max_rounds": max_rounds}
+        logger.info(
+            "Planner round started round=%s max_rounds=%s",
+            next_round,
+            max_rounds,
+            extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+        )
+        yield {"type": "round_started", "round": next_round, "max_rounds": max_rounds, "run_id": get_run_id(state)}
 
         for name, fn in (
             ("orchestrator", orchestrator_agent),
@@ -430,21 +520,30 @@ def run_planner_stream(
                 "type": "step_started",
                 "step": name,
                 "round": next_round,
+                "run_id": get_run_id(state),
                 "message": step_start_msg.get(name, f"Running {name}"),
             }
-            logger.info("Planner step started round=%s step=%s", next_round, name)
+            logger.info("Planner step started round=%s step=%s", next_round, name, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
             try:
                 state = timed_agent_call(name, fn, state)
             except Exception:
-                logger.exception("Planner step failed round=%s step=%s", next_round, name)
+                logger.exception("Planner step failed round=%s step=%s", next_round, name, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+                record_monitoring_event(
+                    "planner_step_failed",
+                    audit_id=get_audit_id(state),
+                    run_id=get_run_id(state),
+                    round_number=next_round,
+                    step=name,
+                )
                 raise
             if abort_requested():
                 aborted = True
-            logger.info("Planner step completed round=%s step=%s", next_round, name)
+            logger.info("Planner step completed round=%s step=%s", next_round, name, extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
             yield {
                 "type": "step_completed",
                 "step": name,
                 "round": next_round,
+                "run_id": get_run_id(state),
                 "message": step_end_msg.get(name, f"Completed {name}"),
             }
             if aborted:
@@ -459,6 +558,7 @@ def run_planner_stream(
         yield {
             "type": "report_ready",
             "round": int(state.get("round_number", next_round)),
+            "run_id": get_run_id(state),
             "report": normalized,
             "report_markdown": markdown,
             "budget_plan": _normalize_json(state.get("budget_plan", {})),
@@ -468,14 +568,8 @@ def run_planner_stream(
         if should_retry:
             state["auto_rerun"] = True
             state["satisfied"] = False
-            reasons: list[str] = []
-            if not within_budget:
-                reasons.append("Current plan exceeds budget.")
-            if missing_fields:
-                reasons.append("Some required plan fields are incomplete.")
-            state["feedback"] = " ".join(reasons) + (
-                " Revise using optimization_hints and provide complete outputs for all specialists."
-            )
+            rerun_context = _auto_rerun_context(state, missing_fields, within_budget)
+            state["feedback"] = rerun_context["feedback"]
             state.setdefault("conversation", []).append(("system_auto_feedback", state["feedback"]))
             logger.warning(
                 "Planner auto-rerun triggered round=%s within_budget=%s missing_fields=%s reason=%s",
@@ -483,12 +577,24 @@ def run_planner_stream(
                 within_budget,
                 missing_fields,
                 state["feedback"],
+                extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+            )
+            record_monitoring_event(
+                "planner_auto_rerun",
+                audit_id=get_audit_id(state),
+                run_id=get_run_id(state),
+                round_number=int(state.get("round_number", next_round)),
+                within_budget=within_budget,
+                missing_fields=missing_fields,
             )
             yield {
                 "type": "auto_rerun",
                 "round": int(state.get("round_number", next_round)),
                 "max_rounds": max_rounds,
+                "run_id": get_run_id(state),
                 "reason": state["feedback"],
+                "trigger_types": rerun_context["trigger_types"],
+                "summary_parts": rerun_context["summary_parts"],
                 "missing_fields": missing_fields,
                 "within_budget": within_budget,
             }
@@ -502,15 +608,30 @@ def run_planner_stream(
             int(state.get("round_number", next_round)),
             within_budget,
             sorted(normalized.keys()) if isinstance(normalized, dict) else [],
+            extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)},
+        )
+        record_monitoring_event(
+            "planner_run_converged",
+            audit_id=get_audit_id(state),
+            run_id=get_run_id(state),
+            round_number=int(state.get("round_number", next_round)),
+            within_budget=within_budget,
         )
         break
 
     state["_abort_run"] = False
     if aborted:
-        logger.warning("Planner run aborted round=%s", int(state.get("round_number", 0)))
+        logger.warning("Planner run aborted round=%s", int(state.get("round_number", 0)), extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+        record_monitoring_event(
+            "planner_run_aborted",
+            audit_id=get_audit_id(state),
+            run_id=get_run_id(state),
+            round_number=int(state.get("round_number", 0)),
+        )
         yield {
             "type": "aborted",
             "round": int(state.get("round_number", 0)),
+            "run_id": get_run_id(state),
             "message": "Planning stopped by user.",
             "final_report": _normalize_json(state.get("final_report", state.get("report", {}))),
             "report_markdown": state.get("report_markdown", ""),
@@ -518,11 +639,18 @@ def run_planner_stream(
         }
         return state
 
-    logger.info("Planner run completed round=%s", int(state.get("round_number", 0)))
+    logger.info("Planner run completed round=%s", int(state.get("round_number", 0)), extra={"audit_id": get_audit_id(state), "run_id": get_run_id(state)})
+    record_monitoring_event(
+        "planner_run_completed",
+        audit_id=get_audit_id(state),
+        run_id=get_run_id(state),
+        round_number=int(state.get("round_number", 0)),
+    )
     yield {
         "type": "completed",
         "round": int(state.get("round_number", 0)),
         "max_rounds": max_rounds,
+        "run_id": get_run_id(state),
         "final_report": _normalize_json(state.get("final_report", state.get("report", {}))),
         "report_markdown": state.get("report_markdown", ""),
         "budget_plan": _normalize_json(state.get("budget_plan", {})),

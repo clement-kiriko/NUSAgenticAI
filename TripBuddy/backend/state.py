@@ -18,3 +18,7 @@ class TripState(TypedDict, total=False):
     food_plan: Dict[str, Any]
     accomodations_plan: Dict[str, Any]
     budget_plan: Dict[str, Any]
+    governance_metadata: Dict[str, Any]
+    policy_evaluation: Dict[str, Any]
+    decision_trace: List[Dict[str, Any]]
+    current_run_id: str

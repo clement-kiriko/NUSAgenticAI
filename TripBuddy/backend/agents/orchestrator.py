@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Dict
 
+from policy_engine import append_decision_trace, enrich_report
 from prompts import role_prompt
 from runtime import LLM_ROUTER, TOOL_GATEWAY
 from utils import debug
@@ -75,6 +76,14 @@ def orchestrator_agent(state: dict) -> dict:
             ),
         )
     )
+    append_decision_trace(
+        state,
+        "orchestrator",
+        f"Started planning round {next_round}.",
+        evidence={"round_number": next_round},
+        outcome="round_started",
+        policy_tags=["orchestration", "control"],
+    )
     return state
 
 
@@ -117,7 +126,16 @@ def consolidation_agent(state: dict) -> dict:
         }
 
     state["report"] = report
+    state["report"] = enrich_report(state, state["report"])
+    append_decision_trace(
+        state,
+        "consolidation",
+        "Merged specialist outputs into the final governed report.",
+        evidence={"report_keys": sorted(state["report"].keys())},
+        outcome="report_ready",
+        policy_tags=["explainability", "accountability", "assurance"],
+    )
     _emit_progress(state, "consolidation", "Final travel report is ready.")
-    log_agent("consolidation", f"Report ready with keys: {list(report.keys())}")
-    state.setdefault("conversation", []).append(("consolidation", report))
+    log_agent("consolidation", f"Report ready with keys: {list(state['report'].keys())}")
+    state.setdefault("conversation", []).append(("consolidation", state["report"]))
     return state

@@ -1,7 +1,9 @@
 import logging
 from typing import Any, Dict, List
 
-from monitoring import record_tool_call, timed_agent_call
+from logging_context import bind_audit_context
+from monitoring import record_monitoring_event, record_tool_call, timed_agent_call
+from policy_engine import append_decision_trace, build_tool_audit_entry, get_audit_id, get_run_id
 from runtime.tool_registry import ToolSpec, serialize_tool_catalog
 from utils import debug
 
@@ -40,7 +42,16 @@ class ToolGateway:
         if agent_name not in spec.allowed_agents:
             raise PermissionError(f"{agent_name} is not allowed to call {tool_name}")
 
+        audit_id = get_audit_id(state)
+        run_id = get_run_id(state)
         record_tool_call(agent_name=agent_name, tool_name=tool_name)
+        record_monitoring_event(
+            "tool_call_started",
+            audit_id=audit_id,
+            run_id=run_id,
+            agent_name=agent_name,
+            tool_name=tool_name,
+        )
 
         emit = state.get("_emit_event")
         tool_labels = {
@@ -62,20 +73,62 @@ class ToolGateway:
                     "agent": agent_name,
                     "tool": tool_name,
                     "message": f"Checking {human_tool}...",
+                    "run_id": run_id,
                 }
             )
 
-        logger.info("Tool call started agent=%s tool=%s args=%s kwargs=%s", agent_name, tool_name, list(args), kwargs)
+        logger.info(
+            "Tool call started agent=%s tool=%s args=%s kwargs=%s",
+            agent_name,
+            tool_name,
+            list(args),
+            kwargs,
+            extra={"audit_id": audit_id, "run_id": run_id},
+        )
         try:
-            result = timed_agent_call(f"tool:{tool_name}", spec.handler, *args, **kwargs)
+            with bind_audit_context(audit_id=audit_id, run_id=run_id):
+                result = timed_agent_call(f"tool:{tool_name}", spec.handler, *args, **kwargs)
         except Exception:
-            logger.exception("Tool call failed agent=%s tool=%s", agent_name, tool_name)
+            logger.exception("Tool call failed agent=%s tool=%s", agent_name, tool_name, extra={"audit_id": audit_id, "run_id": run_id})
+            state.setdefault("tool_calls", []).append(
+                build_tool_audit_entry(agent_name, tool_name, args, kwargs, audit_id=audit_id, run_id=run_id, error="tool execution failed")
+            )
+            record_monitoring_event(
+                "tool_call_failed",
+                audit_id=audit_id,
+                run_id=run_id,
+                agent_name=agent_name,
+                tool_name=tool_name,
+            )
+            append_decision_trace(
+                state,
+                agent_name,
+                f"Tool call failed for {tool_name}.",
+                evidence={"tool": tool_name},
+                outcome="failed",
+                policy_tags=["governance", "accountability"],
+            )
             raise
         debug(f"{agent_name} -> {tool_name} args={list(args)} kwargs={kwargs}", prefix="TOOL")
         debug(f"{tool_name} result preview: {str(result)[:260]}", prefix="TOOL")
-        logger.info("Tool call completed agent=%s tool=%s", agent_name, tool_name)
+        logger.info("Tool call completed agent=%s tool=%s", agent_name, tool_name, extra={"audit_id": audit_id, "run_id": run_id})
         state.setdefault("tool_calls", []).append(
-            {"agent": agent_name, "tool": tool_name, "args": list(args), "kwargs": kwargs}
+            build_tool_audit_entry(agent_name, tool_name, args, kwargs, audit_id=audit_id, run_id=run_id, result=result)
+        )
+        record_monitoring_event(
+            "tool_call_completed",
+            audit_id=audit_id,
+            run_id=run_id,
+            agent_name=agent_name,
+            tool_name=tool_name,
+        )
+        append_decision_trace(
+            state,
+            agent_name,
+            f"Used governed tool {tool_name}.",
+            evidence={"tool": tool_name, "args": list(args)},
+            outcome="success",
+            policy_tags=["governance", "accountability"],
         )
         if callable(emit):
             emit(
@@ -84,6 +137,7 @@ class ToolGateway:
                     "agent": agent_name,
                     "tool": tool_name,
                     "message": f"Received {human_tool}.",
+                    "run_id": run_id,
                 }
             )
         return result
