@@ -8,6 +8,7 @@ from agents.orchestrator import (
     recent_conversation,
 )
 from policy_engine import append_decision_trace
+from ranking import rank_candidates
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -50,6 +51,15 @@ def food_agent(state: dict) -> dict:
     log_agent("food_agent", f"food_search_live returned {len(live_options)} live venue(s)")
 
     optimization_hints = state.get("optimization_hints", {})
+    ranked_food, ranking_meta = rank_candidates(
+        live_options or options,
+        kind="food",
+        user_requirements=req,
+        top_k=3,
+        diversity_key="category",
+        seed_hint=state.get("governance_metadata", {}).get("audit_id", ""),
+    )
+    selected = [item["raw"] for item in ranked_food]
     _emit_progress(state, "Building a day-by-day meal strategy.")
 
     system = role_prompt("Food Agent") + """
@@ -65,6 +75,7 @@ def food_agent(state: dict) -> dict:
         f"Requirements: {json.dumps(req)}\n"
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
+        f"Deterministically ranked shortlist: {json.dumps(selected)}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
         f"food_catalog: {json.dumps(options)}\n"
         f"food_search_live: {json.dumps(live_options)}\n"
@@ -74,21 +85,27 @@ def food_agent(state: dict) -> dict:
     plan = invoke_json(state, system, user)
     if not plan:
         log_agent("food_agent", "LLM output invalid JSON, using deterministic fallback")
-        days = req["days"]
-        cheaper = optimization_hints.get("target_reduction_sgd", 0) > 0
-        base_cost = options[0]["cost_per_meal_sgd"] if options else 12
-        premium_cost = options[1]["cost_per_meal_sgd"] if len(options) > 1 else base_cost
-        meal_cost = base_cost * 2 + (base_cost if cheaper else premium_cost)
-        plan = {
-            "meal_plan": (
+        plan = {}
+
+    days = req["days"]
+    cheaper = optimization_hints.get("target_reduction_sgd", 0) > 0
+    base_cost = float(selected[0].get("cost_per_meal_sgd", 12) or 12) if selected else 12
+    premium_cost = float(selected[1].get("cost_per_meal_sgd", base_cost) or base_cost) if len(selected) > 1 else base_cost
+    meal_cost = base_cost * 2 + (base_cost if cheaper else premium_cost)
+    plan = {
+        "meal_plan": plan.get(
+            "meal_plan",
+            (
                 "Breakfast local, lunch hawker, dinner mostly hawker/local stalls."
                 if cheaper
                 else "Breakfast local, lunch hawker, dinner mix of local/international."
             ),
-            "dietary_notes": "Check allergens and halal/vegetarian labels on each venue.",
-            "top_food_spots": (live_options or options)[:3],
-            "estimated_total_sgd": meal_cost * days,
-        }
+        ),
+        "dietary_notes": plan.get("dietary_notes", "Check allergens and halal/vegetarian labels on each venue."),
+        "top_food_spots": selected,
+        "estimated_total_sgd": meal_cost * days,
+        "ranking_metadata": ranking_meta,
+    }
 
     state["food_plan"] = plan
     append_decision_trace(

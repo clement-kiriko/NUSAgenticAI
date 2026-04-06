@@ -8,6 +8,7 @@ from agents.orchestrator import (
     recent_conversation,
 )
 from policy_engine import append_decision_trace
+from ranking import rank_candidates
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -50,6 +51,16 @@ def locations_agent(state: dict) -> dict:
     transit_hint = safe_tool_call(state, "locations_agent", "route_estimate", "city_center", destination)
     review_hits = safe_tool_call(state, "locations_agent", "place_signals", f"Tourist attractions {destination}", 5)
     optimization_hints = state.get("optimization_hints", {})
+    top_k = 2 if optimization_hints.get("target_reduction_sgd", 0) > 0 else 3
+    ranked_attractions, ranking_meta = rank_candidates(
+        attractions,
+        kind="location",
+        user_requirements=req,
+        top_k=top_k,
+        diversity_key="category",
+        seed_hint=state.get("governance_metadata", {}).get("audit_id", ""),
+    )
+    selected = [item["raw"] for item in ranked_attractions]
     _emit_progress(state, "Drafting a balanced daily activity flow.")
 
     system = role_prompt("Locations Agent") + """
@@ -65,6 +76,7 @@ def locations_agent(state: dict) -> dict:
         f"Requirements: {json.dumps(req)}\n"
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
+        f"Deterministically ranked shortlist: {json.dumps(selected)}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
         f"TouristAttractionAPI: {json.dumps(attractions)}\n"
         f"places_search: {json.dumps(search_hits)}\n"
@@ -74,15 +86,18 @@ def locations_agent(state: dict) -> dict:
     plan = invoke_json(state, system, user)
     if not plan:
         log_agent("locations_agent", "LLM output invalid JSON, using deterministic fallback")
-        cheaper = optimization_hints.get("target_reduction_sgd", 0) > 0
-        top = sorted(attractions[:3], key=lambda x: x.get("ticket_sgd", 0))
-        selected = top[:2] if cheaper else top[:3]
-        plan = {
-            "top_attractions": selected,
-            "neighborhood_strategy": "Cluster activities by nearby areas.",
-            "daily_intensity": "2 major activities per day." if cheaper else "2-3 major activities per day.",
-            "estimated_total_sgd": sum(item["ticket_sgd"] for item in selected),
-        }
+        plan = {}
+
+    plan = {
+        "top_attractions": selected,
+        "neighborhood_strategy": plan.get("neighborhood_strategy", "Cluster activities by nearby areas."),
+        "daily_intensity": plan.get(
+            "daily_intensity",
+            "2 major activities per day." if top_k == 2 else "2-3 major activities per day.",
+        ),
+        "estimated_total_sgd": sum(float(item.get("ticket_sgd", 0) or 0) for item in selected),
+        "ranking_metadata": ranking_meta,
+    }
 
     state["locations_plan"] = plan
     append_decision_trace(

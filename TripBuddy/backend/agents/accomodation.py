@@ -8,6 +8,7 @@ from agents.orchestrator import (
     recent_conversation,
 )
 from policy_engine import append_decision_trace
+from ranking import rank_candidates
 from prompts import role_prompt
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
@@ -57,6 +58,14 @@ def accomodations_agent(state: dict) -> dict:
         state, "accomodations_agent", "place_signals", f"Hotels in {destination}", 5
     )
     optimization_hints = state.get("optimization_hints", {})
+    ranked_stays, ranking_meta = rank_candidates(
+        options,
+        kind="accommodation",
+        user_requirements=req,
+        top_k=1,
+        seed_hint=state.get("governance_metadata", {}).get("audit_id", ""),
+    )
+    selected = ranked_stays[0]["raw"] if ranked_stays else {"name": "No live accommodation options found", "nightly_rate_sgd": 0}
     _emit_progress(state, "Selecting accommodation trade-offs for comfort vs budget.")
 
     system = role_prompt("Accomodations Agent") + """
@@ -72,6 +81,7 @@ def accomodations_agent(state: dict) -> dict:
         f"Requirements: {json.dumps(req)}\n"
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
+        f"Deterministically ranked shortlist: {json.dumps([item['raw'] for item in ranked_stays])}\n"
         f"Prior team messages: {recent_conversation(state)}\n"
         f"AccomsAPI: {json.dumps(options)}\n"
         f"places_search: {json.dumps(search_hits)}\n"
@@ -81,18 +91,20 @@ def accomodations_agent(state: dict) -> dict:
     plan = invoke_json(state, system, user)
     if not plan:
         log_agent("accomodations_agent", "LLM output invalid JSON, using deterministic fallback")
-        if not options:
-            selected = {"name": "No live accommodation options found", "nightly_rate_sgd": 0}
-        elif optimization_hints.get("target_reduction_sgd", 0) > 0:
-            selected = options[0]
-        else:
-            selected = options[1] if len(options) > 1 else options[0]
-        plan = {
-            "selected_stay": selected,
-            "area_notes": "Choose well-connected area to control commute costs.",
-            "tradeoffs": "Selected option balances budget and access to attractions.",
-            "estimated_total_sgd": selected.get("nightly_rate_sgd", 0) * days,
-        }
+        plan = {}
+
+    nightly_rate = selected.get("nightly_rate_sgd", 0)
+    try:
+        nightly_rate = float(nightly_rate)
+    except Exception:
+        nightly_rate = 0
+    plan = {
+        "selected_stay": selected,
+        "area_notes": plan.get("area_notes", "Choose well-connected area to control commute costs."),
+        "tradeoffs": plan.get("tradeoffs", "Selected option balances budget and access to attractions."),
+        "estimated_total_sgd": nightly_rate * days,
+        "ranking_metadata": ranking_meta,
+    }
 
     state["accomodations_plan"] = plan
     append_decision_trace(

@@ -74,6 +74,15 @@ def flight_api(origin: str, destination: str, days: int):
             "flight_number": flight["flight"]["iata"],
             "departure_time": flight["departure"]["scheduled"],
             "arrival_time": flight["arrival"]["scheduled"],
+            "source": "aviationstack",
+            "provider": "aviationstack",
+            "is_sponsored": None,
+            "rating": None,
+            "review_count": None,
+            "accessibility_tags": [],
+            "dietary_tags": [],
+            "location_area": destination,
+            "evidence_count": 1,
         }
         for flight in data.get("data", [])
         if flight.get("airline")

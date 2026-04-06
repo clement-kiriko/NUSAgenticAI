@@ -181,6 +181,11 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
     has_dietary_need = str(req.get("dietary_restrictions", "none")).strip().lower() not in {"", "none", "n/a"}
     dietary_supported = _dietary_supported(state)
     diversity = _diversity_summary(state)
+    selected_candidates = _selected_candidates(state)
+    ranking_modes = _ranking_modes(state)
+    sponsored_selected = any(item.get("is_sponsored") is True for item in selected_candidates)
+    sponsorship_unknown = any(item.get("is_sponsored") is None for item in selected_candidates)
+    deterministic_ranking_present = bool(ranking_modes) and all(mode.startswith("deterministic") for mode in ranking_modes)
 
     trust_scores = {
         "budget_fit": 1.0 if within_budget else max(0.0, 1.0 - (_safe_div(abs(buffer_sgd), max(total_budget, 1.0)))),
@@ -234,9 +239,13 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
     fairness_checks = [
         _decision_check(
             "sponsored_bias_control",
-            True,
-            pass_detail="No sponsored result boost path exists in the ranking logic or tool payloads.",
-            fail_detail="Sponsored result boosting was detected in the ranking logic or tool payloads.",
+            not sponsored_selected,
+            pass_detail=(
+                "Selected recommendations are not marked sponsored."
+                if not sponsorship_unknown
+                else "Selected recommendations are not marked sponsored, but some sponsorship fields remain unknown."
+            ),
+            fail_detail="One or more selected recommendations are marked sponsored.",
         ),
         _decision_check(
             "dietary_constraint_respected",
@@ -252,9 +261,9 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
         ),
         _decision_check(
             "stable_tie_breaking",
-            True,
-            pass_detail="Deterministic fallback logic keeps ranking stable when LLM output is missing.",
-            fail_detail="Ranking fallback is not deterministic.",
+            deterministic_ranking_present,
+            pass_detail=f"Deterministic ranking mode(s) applied: {', '.join(sorted(set(ranking_modes)))}.",
+            fail_detail="Deterministic ranker metadata was not found for all recommendation domains.",
         ),
     ]
 
@@ -334,7 +343,7 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
         "decision_trace": summary_trace,
         "decision_trace_full": full_trace,
         "explainability": {
-            "summary": "The final plan is ranked using deterministic weights across budget fit, evidence coverage, completeness, preference fit, and robustness.",
+            "summary": "This governance score summarizes budget fit, evidence coverage, completeness, preference fit, and robustness after specialist ranking is complete.",
             "score_breakdown": [
                 {"criterion": key, "weight": TRUST_WEIGHTS[key], "score": round(value * 100, 1)}
                 for key, value in trust_scores.items()
@@ -358,7 +367,7 @@ def evaluate_state(state: Dict[str, Any]) -> Dict[str, Any]:
                 {"criterion": key, "weight": TRUST_WEIGHTS[key], "score": round(value * 100, 1)}
                 for key, value in trust_scores.items()
             ],
-            "user_visible_reason": "Cheaper, complete, and better-evidenced plans are ranked ahead of expensive or weakly-supported ones.",
+            "user_visible_reason": "The trust score favors complete, budget-fitting, and well-evidenced plans.",
         },
         "fairness": {
             "status": "stronger" if sum(1 for item in fairness_checks if item["passed"]) >= 3 else "partial",
@@ -506,6 +515,40 @@ def _diversity_summary(state: Dict[str, Any]) -> Dict[str, int]:
         if isinstance(item, dict) and str(item.get("type", "")).strip()
     }
     return {"food_styles": len(food_styles), "attraction_types": len(attraction_types)}
+
+
+def _selected_candidates(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    selected: List[Dict[str, Any]] = []
+    for plan_name, field_name in (
+        ("flight_plan", "selected_option"),
+        ("locations_plan", "top_attractions"),
+        ("food_plan", "top_food_spots"),
+        ("accomodations_plan", "selected_stay"),
+    ):
+        plan = state.get(plan_name, {})
+        if not isinstance(plan, dict):
+            continue
+        value = plan.get(field_name)
+        if isinstance(value, dict):
+            selected.append(value)
+        elif isinstance(value, list):
+            selected.extend(item for item in value if isinstance(item, dict))
+    return selected
+
+
+def _ranking_modes(state: Dict[str, Any]) -> List[str]:
+    modes: List[str] = []
+    for plan_name in ("flight_plan", "locations_plan", "food_plan", "accomodations_plan"):
+        plan = state.get(plan_name, {})
+        if not isinstance(plan, dict):
+            continue
+        metadata = plan.get("ranking_metadata", {})
+        if not isinstance(metadata, dict):
+            continue
+        mode = str(metadata.get("selection_mode", "")).strip()
+        if mode:
+            modes.append(mode)
+    return modes
 
 
 def _contains_coercive_text(value: Any) -> bool:
