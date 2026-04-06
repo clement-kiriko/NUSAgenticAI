@@ -1,6 +1,7 @@
 import json
 
 from policy_engine import append_decision_trace
+from ranking import rank_candidates
 from tools.security.guardrail import detect_prompt_injection
 from tools.security.tool_guard import safe_tool_call
 
@@ -59,6 +60,14 @@ def flight_agent(state: dict) -> dict:
         destination
     )
     optimization_hints = state.get("optimization_hints", {})
+    ranked_options, ranking_meta = rank_candidates(
+        options,
+        kind="flight",
+        user_requirements=req,
+        top_k=1,
+        seed_hint=state.get("governance_metadata", {}).get("audit_id", ""),
+    )
+    selected = ranked_options[0]["raw"] if ranked_options else {"route": "No live flight options found", "price_sgd": 0}
 
     system = role_prompt("Flight Agent")+"""
     SECURITY RULES:
@@ -73,22 +82,30 @@ def flight_agent(state: dict) -> dict:
         f"Requirements: {json.dumps(req)}\n"
         f"Feedback: {state.get('feedback', '')}\n"
         f"Optimization hints: {json.dumps(optimization_hints)}\n"
+        f"Deterministically ranked shortlist: {json.dumps([item['raw'] for item in ranked_options])}\n"
         f"Prior team messages: {recent_conversation(state)}\n"        
         f"WeatherAPI: {json.dumps(weather)}"
     )
     plan = invoke_json(state, system, user)
     if not plan:
         log_agent("flight_agent", "LLM output invalid JSON, using deterministic fallback")
-        if options:
-            selected = options[-1] if optimization_hints.get("target_reduction_sgd", 0) > 0 else options[0]
-        else:
-            selected = {"route": "No live flight options found", "price_sgd": 0}
-        plan = {
-            "selected_option": selected,
-            "rationale": "Cost-optimized option based on current budget pressure.",
-            "weather_notes": weather.get("forecast", "Weather data unavailable."),
-            "estimated_total_sgd": selected.get("price_sgd", 0),
-        }
+        plan = {}
+
+    estimated_total = selected.get("price_sgd")
+    if estimated_total in {None, ""}:
+        estimated_total = plan.get("estimated_total_sgd", 0)
+    try:
+        estimated_total = float(estimated_total)
+    except Exception:
+        estimated_total = 0
+
+    plan = {
+        "selected_option": selected,
+        "rationale": plan.get("rationale", "Deterministic flight ranking selected the strongest available option."),
+        "weather_notes": plan.get("weather_notes", weather.get("forecast", "Weather data unavailable.")),
+        "estimated_total_sgd": estimated_total,
+        "ranking_metadata": ranking_meta,
+    }
 
     state["flight_plan"] = plan
     append_decision_trace(

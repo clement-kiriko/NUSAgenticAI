@@ -80,7 +80,34 @@ def _runtime_snapshot(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
         "running": running,
         "run_id": get_run_id(state),
         "report": state.get("final_report", state.get("report")),
+        "ranker_summary": _ranker_summary(state),
     }
+
+
+def _ranker_summary(state: Dict[str, Any]) -> Dict[str, str]:
+    summary: Dict[str, str] = {}
+    plan_specs = (
+        ("flight", "flight_plan", "selected_option"),
+        ("locations", "locations_plan", "top_attractions"),
+        ("food", "food_plan", "top_food_spots"),
+        ("accomodations", "accomodations_plan", "selected_stay"),
+    )
+
+    for label, plan_name, field_name in plan_specs:
+        plan = state.get(plan_name, {})
+        if not isinstance(plan, dict):
+            continue
+        ranking = plan.get("ranking_metadata", {})
+        if not isinstance(ranking, dict):
+            continue
+        mode = str(ranking.get("selection_mode", "")).strip() or "deterministic"
+        selected_ids = ranking.get("selected_ids", [])
+        selected = plan.get(field_name)
+        count = len(selected) if isinstance(selected, list) else int(bool(selected))
+        summary[label] = (
+            f"{mode}; selected={count}; ids={','.join(str(item) for item in selected_ids[:3]) or '-'}"
+        )
+    return summary
 
 
 def _audit_payload(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,6 +125,7 @@ def _audit_payload(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
         "tool_calls": state.get("tool_calls", []),
         "decision_trace_full": state.get("decision_trace", []),
         "policy_evaluation": state.get("policy_evaluation", {}),
+        "ranker_summary": _ranker_summary(state),
         "specialist_plans": {
             "flight_plan": state.get("flight_plan", {}),
             "locations_plan": state.get("locations_plan", {}),

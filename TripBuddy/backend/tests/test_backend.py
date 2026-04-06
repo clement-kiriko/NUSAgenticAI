@@ -890,6 +890,113 @@ class TestPolicyEngine:
         assert budget_check["passed"] is True
         assert "within the user's stated budget" in budget_check["detail"].lower()
 
+    def test_fairness_checks_use_ranking_metadata(self):
+        from policy_engine import evaluate_state, initialize_governance_state
+
+        state = _minimal_state(
+            flight_plan={
+                "selected_option": {"route": "SIN-TYO", "is_sponsored": False},
+                "weather_notes": "Clear",
+                "estimated_total_sgd": 500,
+                "ranking_metadata": {"selection_mode": "deterministic_stable_sort"},
+            },
+            locations_plan={
+                "top_attractions": [{"name": "Temple", "type": "culture", "source": "geoapify", "is_sponsored": False}],
+                "estimated_total_sgd": 50,
+                "ranking_metadata": {"selection_mode": "deterministic_seeded_rotation"},
+            },
+            food_plan={
+                "meal_plan": "Meals",
+                "top_food_spots": [{"name": "Cafe A", "style": "healthy", "source": "geoapify", "is_sponsored": None}],
+                "estimated_total_sgd": 120,
+                "ranking_metadata": {"selection_mode": "deterministic_seeded_rotation"},
+            },
+            accomodations_plan={
+                "selected_stay": {"name": "Inn", "source": "geoapify", "is_sponsored": False},
+                "estimated_total_sgd": 300,
+                "ranking_metadata": {"selection_mode": "deterministic_stable_sort"},
+            },
+            budget_plan={"projected_total_sgd": 970, "within_budget": True, "buffer_sgd": 530},
+            report={"overview": "Trip"},
+            tool_calls=[{"tool": "FlightAPI"}],
+        )
+        initialize_governance_state(state)
+
+        evaluation = evaluate_state(state)
+
+        fairness = {item["name"]: item for item in evaluation["fairness"]["checks"]}
+        assert fairness["stable_tie_breaking"]["passed"] is True
+        assert "deterministic" in fairness["stable_tie_breaking"]["detail"].lower()
+        assert fairness["sponsored_bias_control"]["passed"] is True
+
+
+class TestRankingModule:
+    def setup_method(self):
+        from ranking import rank_candidates
+
+        self.rank_candidates = rank_candidates
+
+    def test_same_inputs_always_produce_same_ordering(self):
+        candidates = [
+            {"name": "A", "ticket_sgd": 10, "type": "culture", "source": "geoapify"},
+            {"name": "B", "ticket_sgd": 20, "type": "scenic", "source": "mock"},
+            {"name": "C", "ticket_sgd": 15, "type": "culture", "source": "geoapify"},
+        ]
+        req = {"location_preference": "Tokyo, Japan", "days": 3}
+
+        first, first_meta = self.rank_candidates(candidates, kind="location", user_requirements=req, top_k=3)
+        second, second_meta = self.rank_candidates(candidates, kind="location", user_requirements=req, top_k=3)
+
+        assert [item["id"] for item in first] == [item["id"] for item in second]
+        assert first_meta["seed"] == second_meta["seed"]
+
+    def test_sponsored_item_does_not_outrank_equivalent_non_sponsored_item(self):
+        candidates = [
+            {"name": "Sponsored Hotel", "nightly_rate_sgd": 100, "type": "hotel", "source": "geoapify", "is_sponsored": True},
+            {"name": "Organic Hotel", "nightly_rate_sgd": 100, "type": "hotel", "source": "geoapify", "is_sponsored": False},
+        ]
+
+        ranked, _meta = self.rank_candidates(candidates, kind="accommodation", user_requirements={}, top_k=2)
+
+        assert ranked[0]["raw"]["name"] == "Organic Hotel"
+
+    def test_vegetarian_user_gets_tagged_food_when_available(self):
+        candidates = [
+            {"name": "Steak House", "cost_per_meal_sgd": 20, "style": "grill", "source": "geoapify", "dietary_tags": ["omnivore"]},
+            {"name": "Green Bowl", "cost_per_meal_sgd": 20, "style": "healthy", "source": "geoapify", "dietary_tags": ["vegetarian"]},
+            {"name": "Soup Spot", "cost_per_meal_sgd": 18, "style": "local", "source": "geoapify"},
+        ]
+
+        ranked, _meta = self.rank_candidates(
+            candidates,
+            kind="food",
+            user_requirements={"dietary_restrictions": "vegetarian"},
+            top_k=2,
+            diversity_key="category",
+        )
+
+        assert ranked
+        assert ranked[0]["raw"]["name"] == "Green Bowl"
+
+    def test_diversity_constraints_hold_when_enough_categories_exist(self):
+        candidates = [
+            {"name": "Museum", "ticket_sgd": 20, "type": "culture", "source": "geoapify"},
+            {"name": "Skydeck", "ticket_sgd": 20, "type": "scenic", "source": "geoapify"},
+            {"name": "Old Town", "ticket_sgd": 15, "type": "culture", "source": "geoapify"},
+        ]
+
+        ranked, meta = self.rank_candidates(
+            candidates,
+            kind="location",
+            user_requirements={"location_preference": "Tokyo, Japan"},
+            top_k=2,
+            diversity_key="category",
+        )
+
+        assert len(ranked) == 2
+        assert len({item["category"] for item in ranked}) == 2
+        assert meta["selected_count"] == 2
+
 
 class TestApiServerHelpers:
     def test_audit_payload_contains_traceability_bundle(self):
@@ -902,9 +1009,9 @@ class TestApiServerHelpers:
             decision_trace=[{"actor": "flight_agent", "summary": "Picked flight"}],
             policy_evaluation={"assurance": {"confidence_score": 80}},
             final_report={"overview": "Trip"},
-            flight_plan={"selected_option": "SQ1"},
+            flight_plan={"selected_option": "SQ1", "ranking_metadata": {"selection_mode": "deterministic_stable_sort", "selected_ids": ["flight:1"]}},
             locations_plan={},
-            food_plan={},
+            food_plan={"top_food_spots": [{"name": "Cafe A"}], "ranking_metadata": {"selection_mode": "deterministic_seeded_rotation", "selected_ids": ["food:1"]}},
             accomodations_plan={},
             budget_plan={},
         )
@@ -925,6 +1032,35 @@ class TestApiServerHelpers:
         assert payload["decision_trace_full"] == state["decision_trace"]
         assert payload["policy_evaluation"] == state["policy_evaluation"]
         assert payload["final_report"] == state["final_report"]
+        assert "ranker_summary" in payload
+        assert "deterministic_stable_sort" in payload["ranker_summary"]["flight"]
+        assert "deterministic_seeded_rotation" in payload["ranker_summary"]["food"]
+
+    def test_runtime_snapshot_includes_ranker_summary(self):
+        from api_server import SESSION_RUNTIME, _runtime_snapshot
+        from policy_engine import initialize_governance_state
+
+        session_id = "session-456"
+        state = _minimal_state(
+            final_report={"overview": "Trip"},
+            food_plan={
+                "top_food_spots": [{"name": "Cafe A"}],
+                "ranking_metadata": {"selection_mode": "deterministic_seeded_rotation", "selected_ids": ["food:1"]},
+            },
+        )
+        initialize_governance_state(state)
+        SESSION_RUNTIME[session_id] = {
+            "events": [{"type": "run_started"}],
+            "running": False,
+            "abort_requested": False,
+            "lock": __import__("threading").Lock(),
+        }
+
+        snapshot = _runtime_snapshot(session_id, state)
+
+        assert "ranker_summary" in snapshot
+        assert "food" in snapshot["ranker_summary"]
+        assert "selected=1" in snapshot["ranker_summary"]["food"]
 
 
 class TestLoggingSetup:

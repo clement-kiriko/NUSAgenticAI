@@ -18,7 +18,7 @@ def _fallback_attractions(destination: str) -> List[Dict]:
         {"name": "City Observation Deck", "type": "scenic", "ticket_sgd": 40, "source": "mock"},
         {"name": "Night Market Street", "type": "food-shopping", "ticket_sgd": 0, "source": "mock"},
     ]
-    return [{**item, "destination": destination} for item in defaults]
+    return [{**item, "destination": destination, **_ranking_metadata("mock", destination)} for item in defaults]
 
 
 def _fallback_food(destination: str) -> List[Dict]:
@@ -29,6 +29,7 @@ def _fallback_food(destination: str) -> List[Dict]:
             "cost_per_meal_sgd": 12,
             "destination": destination,
             "source": "mock",
+            **_ranking_metadata("mock", destination),
         },
         {
             "name": "Mid-range Bistro",
@@ -36,6 +37,7 @@ def _fallback_food(destination: str) -> List[Dict]:
             "cost_per_meal_sgd": 28,
             "destination": destination,
             "source": "mock",
+            **_ranking_metadata("mock", destination),
         },
         {
             "name": "Diet-friendly Cafe",
@@ -43,6 +45,8 @@ def _fallback_food(destination: str) -> List[Dict]:
             "cost_per_meal_sgd": 22,
             "destination": destination,
             "source": "mock",
+            "dietary_tags": ["vegetarian"],
+            **_ranking_metadata("mock", destination),
         },
     ]
 
@@ -55,6 +59,7 @@ def _fallback_accommodation(destination: str) -> List[Dict]:
             "nightly_rate_sgd": 60,
             "destination": destination,
             "source": "mock",
+            **_ranking_metadata("mock", destination),
         },
         {
             "name": "Riverside Hotel",
@@ -62,6 +67,7 @@ def _fallback_accommodation(destination: str) -> List[Dict]:
             "nightly_rate_sgd": 145,
             "destination": destination,
             "source": "mock",
+            **_ranking_metadata("mock", destination),
         },
         {
             "name": "Skyline Suites",
@@ -69,6 +75,7 @@ def _fallback_accommodation(destination: str) -> List[Dict]:
             "nightly_rate_sgd": 260,
             "destination": destination,
             "source": "mock",
+            **_ranking_metadata("mock", destination),
         },
     ]
 
@@ -97,6 +104,19 @@ def _fallback_reviews(query: str, limit: int = 5) -> List[Dict]:
         {"place": f"{query} Spot B", "category": ["fallback"], "source": "mock_reviews"},
         {"place": f"{query} Spot C", "category": ["fallback"], "source": "mock_reviews"},
     ][:limit]
+
+
+def _ranking_metadata(provider: str, destination: str) -> Dict:
+    return {
+        "provider": provider,
+        "is_sponsored": None,
+        "rating": None,
+        "review_count": None,
+        "accessibility_tags": [],
+        "dietary_tags": [],
+        "location_area": destination,
+        "evidence_count": 1,
+    }
 
 
 def _mask_api_key(url: str) -> str:
@@ -262,6 +282,7 @@ def tourist_attraction_api(destination: str) -> List[Dict]:
                             "ticket_sgd": ticket,
                             "destination": destination,
                             "source": "geoapify",
+                            **_ranking_metadata("geoapify", destination),
                         }
                     )
                 if rows:
@@ -300,6 +321,7 @@ def food_api(destination: str) -> List[Dict]:
                             "cost_per_meal_sgd": est_cost,
                             "destination": destination,
                             "source": "geoapify",
+                            **_ranking_metadata("geoapify", destination),
                         }
                     )
                 if rows:
@@ -338,6 +360,7 @@ def accomodation_api(destination: str) -> List[Dict]:
                             "nightly_rate_sgd": nightly,
                             "destination": destination,
                             "source": "geoapify",
+                            **_ranking_metadata("geoapify", destination),
                         }
                     )
                 if rows:
