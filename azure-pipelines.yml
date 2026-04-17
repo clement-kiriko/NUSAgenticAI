@@ -36,7 +36,8 @@ stages:
         /tmp/tripbuddy-ci-venv/bin/pip install -r requirements.txt
         /tmp/tripbuddy-ci-venv/bin/pip install prometheus-client fastapi
         cd TripBuddy/backend
-        /tmp/tripbuddy-ci-venv/bin/pytest tests/test_backend.py -v --tb=short \
+        /tmp/tripbuddy-ci-venv/bin/pytest tests/ -v --tb=short \
+          --ignore=tests/test_ai_security.py \
           --junit-xml=../../test-results/unit-tests.xml
       displayName: 'Run Backend Unit Tests'
 
