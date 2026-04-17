@@ -1,6 +1,6 @@
 # test_tool_guard.py
 
-from backend.tools.security.tool_guard import safe_tool_call
+from tools.security.tool_guard import safe_tool_call
 
 def dummy_state():
     return {}

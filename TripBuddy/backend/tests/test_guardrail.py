@@ -1,5 +1,5 @@
 import unittest
-from backend.tools.security.guardrail import detect_prompt_injection
+from tools.security.guardrail import detect_prompt_injection
 
 class TestPromptInjection(unittest.TestCase):
 
